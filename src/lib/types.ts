@@ -28,6 +28,8 @@ export type AnalysisResult = {
   resumes: Resume[];
   details: AnalysisDetails;
   statuses: Record<string, CandidateStatus>;
+  jobRole?: string | null;
+  jobDescriptionSummary?: string | null;
 };
 
 export interface MetricWeights {
@@ -78,7 +80,7 @@ export interface ResumeDoc {
   result: {
     json: ResumeJSONV2 | null;
     description: string | null;
-    scores: ScorePackV2 | null;
+    scores: typeof ScorePackV2 | null;
     schemaVersion: number;
     modelVersion: string;
   } | null;

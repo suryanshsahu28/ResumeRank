@@ -658,6 +658,28 @@ const SIZE=100;
                 )}
             </div>
 
+            {/* Job Role/Description Header */}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-start gap-3">
+                <Briefcase className="w-6 h-6 text-blue-600 mt-1 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                    {analysisResult.jobRole || 'Job Analysis'}
+                  </h2>
+                  {analysisResult.jobDescriptionSummary && (
+                    <p className="text-sm text-gray-600">
+                      {analysisResult.jobDescriptionSummary}
+                    </p>
+                  )}
+                  {!analysisResult.jobDescriptionSummary && analysisResult.jobDescription && (
+                    <p className="text-sm text-gray-600 line-clamp-3">
+                      {analysisResult.jobDescription}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {showReanalyzeUI && <ReanalyzeSection />}
             
             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "all" | "shortlisted" | "rejected")}>
@@ -958,7 +980,7 @@ const SIZE=100;
             onClose={() => setIsViewerOpen(false)}
             result={currentRankedResult}
             details={currentDetail}
-            resumeContent={analysisResult.resumes.find(r => r.filename === currentRankedResult.filename)?.content}
+            resumeContent={analysisResult.resumes.find(r => r.filename === currentRankedResult.filename)?.content || ''}
             resumeUrl={currentResume?.url}
             onNext={() => setViewingIndex(i => (i + 1) % analysisResult.rankedResumes.length)}
             onPrev={() => setViewingIndex(i => (i - 1 + analysisResult.rankedResumes.length) % analysisResult.rankedResumes.length)}
@@ -969,7 +991,3 @@ const SIZE=100;
     </div>
   );
 }
-
-    
-
-    

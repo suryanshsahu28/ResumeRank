@@ -11,8 +11,10 @@ import type { AnalysisResult, Resume } from '@/lib/types';
 export type Report = Omit<AnalysisResult, 'resumes'> & { 
   id: string, 
   jobDescription: string, 
+  jobRole?: string | null,
+  jobDescriptionSummary?: string | null,
   createdAt: string, 
-  resumes: (Omit<Resume, 'content'> & {url?: string})[]
+  resumes: (Resume & {url?: string})[]
 };
 
 

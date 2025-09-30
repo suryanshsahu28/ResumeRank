@@ -203,6 +203,29 @@ export const ResumeViewerModal: React.FC<ResumeViewerModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose, onNext, onPrev, hasNext, hasPrev]);
 
+  // Prevent background scrolling when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      // Store the current scroll position
+      const scrollY = window.scrollY;
+      // Disable body scroll
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+      
+      return () => {
+        // Re-enable body scroll
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        // Restore scroll position
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [isOpen]);
+
   const handleFullscreen = () => {
     if (modalRef.current) {
         if (!document.fullscreenElement) modalRef.current.requestFullscreen();

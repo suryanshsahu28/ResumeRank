@@ -22,6 +22,11 @@ import {
   ExtractCandidateNameInput,
   ExtractCandidateNameOutput,
 } from '@/ai/flows/extract-candidate-name';
+import {
+  extractJobInfo as extractJobInfoFlow,
+  ExtractJobInfoInput,
+  ExtractJobInfoOutput,
+} from '@/ai/flows/extract-job-info';
 import {db, storage} from '@/lib/firebase';
 import {
   collection,
@@ -100,6 +105,12 @@ export async function analyzeSingleResumeAction(
 
         send({ type: 'status', message: 'Initializing report...' });
 
+        // ---- extract job role and summary from job description
+        send({ type: 'status', message: 'Extracting job information...' });
+        const jobInfoResult = await retry(() =>
+          extractJobInfoFlow({ jobDescription })
+        );
+
         // ---- ensure a report (create if not provided)
         let reportRef;
         if (opts?.reportId) {
@@ -109,6 +120,8 @@ export async function analyzeSingleResumeAction(
         } else {
           const initial = {
             jobDescription,
+            jobRole: jobInfoResult.jobRole,
+            jobDescriptionSummary: jobInfoResult.summary,
             rankedResumes: [],
             statuses: {},
             createdAt: serverTimestamp(),
@@ -213,6 +226,8 @@ export async function analyzeSingleResumeAction(
         const finalReport: Report = {
           id: reportRef.id,
           jobDescription: fd?.jobDescription ?? jobDescription,
+          jobRole: fd?.jobRole ?? jobInfoResult.jobRole,
+          jobDescriptionSummary: fd?.jobDescriptionSummary ?? jobInfoResult.summary,
           rankedResumes: fd?.rankedResumes ?? merged,
           resumes: (fd?.resumes ?? finalResumes).map((r:any) => ({
             ...r, 
@@ -261,6 +276,33 @@ export async function updateAndReanalyzeReport(
         }
         const reportData = reportSnapshot.data();
         const jobDescription = reportData.jobDescription;
+
+        // Extract job role and summary if not already stored
+        let jobRole = reportData.jobRole;
+        let jobDescriptionSummary = reportData.jobDescriptionSummary;
+        
+        if (!jobRole || !jobDescriptionSummary) {
+          enqueue({ type: 'status', message: 'Extracting job information...' });
+          const jobInfoResult = await retry(() =>
+            extractJobInfoFlow({ jobDescription })
+          );
+          
+          // Update missing fields
+          const updateData: any = {};
+          if (!jobRole) {
+            jobRole = jobInfoResult.jobRole;
+            updateData.jobRole = jobRole;
+          }
+          if (!jobDescriptionSummary) {
+            jobDescriptionSummary = jobInfoResult.summary;
+            updateData.jobDescriptionSummary = jobDescriptionSummary;
+          }
+          
+          // Update the report with the extracted information
+          if (Object.keys(updateData).length > 0) {
+            await updateDoc(reportRef, updateData);
+          }
+        }
         
         // --- Single Source of Truth for Resumes ---
         const allResumesMap = new Map<string, { filename: string, url?: string, content?: string }>();
@@ -331,7 +373,7 @@ export async function updateAndReanalyzeReport(
         const rankedMap = new Map(existingRanked.map((r: any) => [r.filename, r]));
         rankedResumes.forEach(r => rankedMap.set(r.filename, r));
         
-        const sortedRankedResumes = Array.from(rankedMap.values()).sort((a, b) => b.score - a.score);
+        const sortedRankedResumes = Array.from(rankedMap.values()).sort((a: any, b: any) => b.score - a.score);
         
         const allResumesForDb = Array.from(allResumesMap.values()).map(({ content, ...rest }) => rest); // Remove content before DB write
         
@@ -355,6 +397,8 @@ export async function updateAndReanalyzeReport(
          const finalReport: Report = {
             id: reportRef.id,
             jobDescription,
+            jobRole: finalDocData?.jobRole || jobRole,
+            jobDescriptionSummary: finalDocData?.jobDescriptionSummary || jobDescriptionSummary,
             rankedResumes: finalDocData?.rankedResumes || [],
             resumes: finalDocData?.resumes.map((r:any) => ({
               ...r, 
@@ -427,6 +471,8 @@ export async function getAnalysisReports(
       return {
         id: reportId,
         jobDescription: data.jobDescription,
+        jobRole: data.jobRole,
+        jobDescriptionSummary: data.jobDescriptionSummary,
         rankedResumes: rankedResumes,
         resumes: (data.resumes || []).map((r: any) => ({
           ...r,

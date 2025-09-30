@@ -38,7 +38,6 @@ import { useToast } from '@/hooks/use-toast';
 // Single source of truth for "completed"
 const isCompleted = (r: Report) => {
   // 1) explicit status flag if your backend sets it
-  // @ts-expect-error allow optional status field
   if ((r as any).status === 'completed') return true;
 
   // 2) finished if we have any ranked results
@@ -46,7 +45,6 @@ const isCompleted = (r: Report) => {
 
   // 3) optionally, if you track granular statuses in an object
   // (treat as completed if any step is 'done')
-  // @ts-expect-error allow optional statuses map
   if (r.statuses && Object.values(r.statuses).some((s: string) => s === 'done')) return true;
 
   return false;
@@ -106,7 +104,7 @@ export default function Dashboard({
   const filteredProjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const bySearch = (p: Report) =>
-      (p.jobDescription ?? '').toLowerCase().includes(q);
+      ((p.jobRole ?? p.jobDescriptionSummary ?? p.jobDescription) ?? '').toLowerCase().includes(q);
 
     if (activeTab === 'all') return reports.filter(bySearch);
     if (activeTab === 'completed') return reports.filter(p => bySearch(p) && isCompleted(p));
@@ -134,7 +132,7 @@ export default function Dashboard({
       setReports(prev => prev.filter(r => r.id !== reportToDelete.id));
       toast({
         title: "Report Deleted",
-        description: `"${(reportToDelete.jobDescription ?? '').substring(0, 50)}..." has been permanently removed.`
+        description: `"${((reportToDelete.jobRole ?? reportToDelete.jobDescriptionSummary ?? reportToDelete.jobDescription) ?? '').substring(0, 50)}..." has been permanently removed.`
       });
     } catch (e: any) {
       toast({ title: "Delete Failed", description: e?.message ?? 'Unknown error', variant: "destructive" });
@@ -167,8 +165,18 @@ export default function Dashboard({
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-gray-800 text-lg leading-tight line-clamp-2">
-                      {project.jobDescription ?? 'Untitled Project'}
+                      {project.jobRole ?? 'Untitled Project'}
                     </h3>
+                    {project.jobDescriptionSummary && (
+                      <p className="text-sm text-gray-600 mt-1 line-clamp-1">
+                        {project.jobDescriptionSummary}
+                      </p>
+                    )}
+                    {!project.jobDescriptionSummary && project.jobDescription && (
+                      <p className="text-sm text-gray-600 line-clamp-2 mt-1">
+                        {project.jobDescription}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -287,8 +295,18 @@ export default function Dashboard({
                     </div>
                     <div>
                       <div className="font-semibold text-gray-800 line-clamp-1">
-                        {project.jobDescription ?? 'Untitled Project'}
+                        {project.jobRole ?? 'Untitled Project'}
                       </div>
+                      {project.jobDescriptionSummary && (
+                        <div className="text-xs text-gray-600 mt-1 line-clamp-1">
+                          {project.jobDescriptionSummary}
+                        </div>
+                      )}
+                      {!project.jobDescriptionSummary && project.jobDescription && (
+                        <div className="text-xs text-gray-600 line-clamp-1 mt-1">
+                          {project.jobDescription}
+                        </div>
+                      )}
                       <div className="text-sm text-gray-600">
                         {project.resumes?.length ?? 0} candidates
                       </div>
@@ -536,7 +554,7 @@ export default function Dashboard({
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the report for "{reportToDelete?.jobDescription ? `${reportToDelete.jobDescription.substring(0, 100)}...` : 'this report'}" and all associated resume files. This action cannot be undone.
+              This will permanently delete the report for "{reportToDelete?.jobRole ?? reportToDelete?.jobDescriptionSummary ?? reportToDelete?.jobDescription ? `${(reportToDelete.jobRole ?? reportToDelete.jobDescriptionSummary ?? reportToDelete.jobDescription).substring(0, 100)}...` : 'this report'}" and all associated resume files. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
