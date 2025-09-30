@@ -4,16 +4,6 @@ import type * as PdfJs from 'pdfjs-dist';
 import { XMarkIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsPointingOutIcon, DownloadIcon } from './icons';
 import type { AnalysisResult } from '@/lib/types';
 
-
-const pdfjsLibPromise = import('pdfjs-dist');
-let pdfjsLib: typeof PdfJs | null = null;
-pdfjsLibPromise.then(lib => {
-  pdfjsLib = lib;
-  if (pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.3.136/build/pdf.worker.mjs`;
-  }
-});
-
 interface ResumeViewerModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -34,26 +24,34 @@ interface PdfPreviewProps {
 
 const PdfPreview: React.FC<PdfPreviewProps> = ({ fileUrl, onDownload }) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const [pdfJs, setPdfJs] = useState<typeof PdfJs | null>(null);
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const renderPdf = async () => {
-            try {
-                if (!pdfjsLib) {
-                    pdfjsLib = await pdfjsLibPromise;
-                    if (pdfjsLib) {
-                        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.3.136/build/pdf.worker.mjs`;
-                    }
-                }
-                if (!fileUrl || !containerRef.current || !pdfjsLib) return;
-                
-                setStatus('loading');
-                const container = containerRef.current;
-                container.innerHTML = ''; // Clear previous renders
-                setError(null);
+        let isMounted = true;
+        import('pdfjs-dist').then(lib => {
+            if (isMounted) {
+                lib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${lib.version}/build/pdf.worker.mjs`;
+                setPdfJs(lib);
+            }
+        });
+        return () => {
+            isMounted = false;
+        };
+    }, []);
 
-                const loadingTask = pdfjsLib.getDocument(fileUrl);
+    useEffect(() => {
+        const renderPdf = async () => {
+            if (!pdfJs || !fileUrl || !containerRef.current) return;
+
+            setStatus('loading');
+            const container = containerRef.current;
+            container.innerHTML = ''; // Clear previous renders
+            setError(null);
+
+            try {
+                const loadingTask = pdfJs.getDocument(fileUrl);
                 const pdf = await loadingTask.promise;
                 const numPages = pdf.numPages;
 
@@ -80,15 +78,15 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ fileUrl, onDownload }) => {
                     await page.render(renderContext).promise;
                 }
                 setStatus('success');
-            } catch (err) {
+            } catch (err: any) {
                 console.error('Error rendering PDF with PDF.js:', err);
-                setError('Could not display PDF preview. The file might be corrupted or in an unsupported format.');
+                setError(err.message || 'Could not display PDF preview. The file might be corrupted or in an unsupported format.');
                 setStatus('error');
             }
         };
 
         renderPdf();
-    }, [fileUrl]);
+    }, [fileUrl, pdfJs]);
 
     return (
         <div className="w-full h-full bg-slate-300 overflow-y-auto">
@@ -157,7 +155,7 @@ export const ResumeViewerModal: React.FC<ResumeViewerModalProps> = ({
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   
-  const isPdf = resumeUrl?.toLowerCase().endsWith('.pdf');
+  const isPdf = result.filename?.toLowerCase().endsWith('.pdf');
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
