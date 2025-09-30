@@ -4,6 +4,16 @@ import type * as PdfJs from 'pdfjs-dist';
 import { XMarkIcon, ArrowLeftIcon, ArrowRightIcon, ArrowsPointingOutIcon, DownloadIcon } from './icons';
 import type { AnalysisResult } from '@/lib/types';
 
+
+const pdfjsLibPromise = import('pdfjs-dist');
+let pdfjsLib: typeof PdfJs | null = null;
+pdfjsLibPromise.then(lib => {
+  pdfjsLib = lib;
+  if (pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.3.136/build/pdf.worker.mjs`;
+  }
+});
+
 interface ResumeViewerModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -24,34 +34,35 @@ interface PdfPreviewProps {
 
 const PdfPreview: React.FC<PdfPreviewProps> = ({ fileUrl, onDownload }) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const [pdfJs, setPdfJs] = useState<typeof PdfJs | null>(null);
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        let isMounted = true;
-        import('pdfjs-dist').then(lib => {
-            if (isMounted) {
-                lib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${lib.version}/build/pdf.worker.mjs`;
-                setPdfJs(lib);
-            }
-        });
-        return () => {
-            isMounted = false;
-        };
-    }, []);
-
-    useEffect(() => {
         const renderPdf = async () => {
-            if (!pdfJs || !fileUrl || !containerRef.current) return;
-
-            setStatus('loading');
-            const container = containerRef.current;
-            container.innerHTML = ''; // Clear previous renders
-            setError(null);
-
             try {
-                const loadingTask = pdfJs.getDocument(fileUrl);
+                if (!pdfjsLib) {
+                    pdfjsLib = await pdfjsLibPromise;
+                    if (pdfjsLib) {
+                        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.3.136/build/pdf.worker.mjs`;
+                    }
+                }
+                if (!fileUrl || !containerRef.current || !pdfjsLib) return;
+                
+                setStatus('loading');
+                const container = containerRef.current;
+                container.innerHTML = ''; // Clear previous renders
+                setError(null);
+
+                // Use proxy endpoint to avoid CORS issues
+                const proxyUrl = `/api/proxy-pdf?url=${encodeURIComponent(fileUrl)}`;
+                const response = await fetch(proxyUrl);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
+                }
+                const pdfBlob = await response.blob();
+                const pdfUrl = URL.createObjectURL(pdfBlob);
+
+                const loadingTask = pdfjsLib.getDocument(pdfUrl);
                 const pdf = await loadingTask.promise;
                 const numPages = pdf.numPages;
 
@@ -78,15 +89,18 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ fileUrl, onDownload }) => {
                     await page.render(renderContext).promise;
                 }
                 setStatus('success');
-            } catch (err: any) {
+                
+                // Clean up the object URL after rendering
+                URL.revokeObjectURL(pdfUrl);
+            } catch (err) {
                 console.error('Error rendering PDF with PDF.js:', err);
-                setError(err.message || 'Could not display PDF preview. The file might be corrupted or in an unsupported format.');
+                setError('Could not display PDF preview. The file might be corrupted or in an unsupported format.');
                 setStatus('error');
             }
         };
 
         renderPdf();
-    }, [fileUrl, pdfJs]);
+    }, [fileUrl]);
 
     return (
         <div className="w-full h-full bg-slate-300 overflow-y-auto">
@@ -156,6 +170,18 @@ export const ResumeViewerModal: React.FC<ResumeViewerModalProps> = ({
   const modalRef = useRef<HTMLDivElement>(null);
   
   const isPdf = result.filename?.toLowerCase().endsWith('.pdf');
+
+  // Debug logging
+  useEffect(() => {
+    if (isOpen) {
+      console.log('ResumeViewerModal Debug:', {
+        filename: result.filename,
+        isPdf,
+        resumeUrl,
+        resumeContent: resumeContent ? 'has content' : 'no content'
+      });
+    }
+  }, [isOpen, result.filename, isPdf, resumeUrl, resumeContent]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
