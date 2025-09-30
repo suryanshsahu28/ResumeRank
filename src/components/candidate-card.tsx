@@ -71,7 +71,6 @@ export default function CandidateCard({
   }
 
   const isLoadingDetails = !details;
-
   return (
     <Card className="transition-all hover:shadow-lg">
       <CardHeader>
@@ -85,7 +84,9 @@ export default function CandidateCard({
               >
                 {rank}
               </span>
-              <CardTitle className="text-xl">{rankedResume.filename.replace(/_/g, ' ').replace('.txt', '')}</CardTitle>
+              <CardTitle className="text-xl">
+                {details?.candidateName || rankedResume.filename.replace(/_/g, ' ').replace('.txt', '')}
+              </CardTitle>
             </div>
             <CardDescription className="mt-2 text-sm">{rankedResume.highlights}</CardDescription>
           </div>

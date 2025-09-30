@@ -228,7 +228,7 @@ export default function Dashboard({
                 <p className="text-sm font-medium text-gray-700 mb-2">Top Candidate</p>
                 <div className="flex flex-wrap gap-1">
                   <Badge variant="secondary" className="text-xs">
-                    {top?.filename?.replace(/_/g, ' ').replace('.txt', '') ?? 'N/A'}
+                    {project.details?.[top?.filename || '']?.candidateName || top?.filename?.replace(/_/g, ' ').replace('.txt', '') || 'N/A'}
                   </Badge>
                 </div>
               </div>

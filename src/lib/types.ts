@@ -10,6 +10,7 @@ export type Resume = {
   filename: string;
   content: string;
   url?: string;
+  candidateName?: string | null;
 };
 
 export type CandidateStatus = 'none' | 'shortlisted' | 'rejected';
@@ -18,6 +19,7 @@ export type AnalysisDetails = {
   [key: string]: {
     skills: ParseResumeSkillsOutput;
     keywords: MatchKeywordsToResumeOutput;
+    candidateName?: string | null;
   };
 };
 
@@ -65,7 +67,7 @@ export interface ResumeDoc {
   id: string;
   resumeId: string;
   batchId: string;
-  fileUrl: string; // gs:// URI
+  fileUrl: string; // Downloadable URL (https://...)
   fileHash: string | null;
   status: ResumeV2Status;
   startTime: string | null; // ISO string
@@ -84,7 +86,3 @@ export interface ResumeDoc {
 }
 
 export type ResumeV2 = ResumeDoc; // Alias for UI components
-
-    
-
-    

@@ -17,6 +17,11 @@ import {
   MatchKeywordsToResumeInput,
   MatchKeywordsToResumeOutput,
 } from '@/ai/flows/match-keywords-to-resume';
+import {
+  extractCandidateName as extractCandidateNameFlow,
+  ExtractCandidateNameInput,
+  ExtractCandidateNameOutput,
+} from '@/ai/flows/extract-candidate-name';
 import {db, storage} from '@/lib/firebase';
 import {
   collection,
@@ -128,7 +133,7 @@ export async function analyzeSingleResumeAction(
         await updateDoc(reportRef, { resumes: finalResumes });
         send({ type: 'resumes', resumes: finalResumes });
 
-        // ---- analysis (skills + keywords) for THIS resume only
+        // ---- analysis (skills + keywords + candidate name) for THIS resume only
         send({ type: 'status', message: `Parsing skills for ${resume.filename}...` });
         const skills = await retry(() =>
           parseResumeSkillsFlow({ resumeText: resume.content }) // if your flow takes text
@@ -139,11 +144,20 @@ export async function analyzeSingleResumeAction(
           matchKeywordsToResumeFlow({ resumeText: resume.content, jobDescription })
         );
 
+        send({ type: 'status', message: `Extracting candidate name for ${resume.filename}...` });
+        const nameResult = await retry(() =>
+          extractCandidateNameFlow({ resumeText: resume.content })
+        );
+
         // ---- write details/<filename>
         send({ type: 'status', message: 'Saving analysis details...' });
         const batch = writeBatch(db);
         const detailRef = doc(db, 'users', userId, 'analysisReports', reportRef.id, 'details', resume.filename);
-        const detailData = { skills, keywords } satisfies AnalysisDetails[string];
+        const detailData = { 
+          skills, 
+          keywords, 
+          candidateName: nameResult.candidateName || undefined
+        } satisfies AnalysisDetails[string];
         batch.set(detailRef, detailData);
         await batch.commit();
 
@@ -182,12 +196,30 @@ export async function analyzeSingleResumeAction(
         const finalSnap = await getDoc(reportRef);
         const fd = finalSnap.data();
 
+        // Step 1: Get all existing details from the subcollection
+        const detailsCollectionRef = collection(db, 'users', userId, 'analysisReports', reportRef.id, 'details');
+        const detailsSnapshot = await getDocs(detailsCollectionRef);
+        const existingDetails = detailsSnapshot.docs.reduce((acc, detailDoc) => {
+          acc[detailDoc.id] = detailDoc.data() as AnalysisDetails[string];
+          return acc;
+        }, {} as AnalysisDetails);
+
+        // Step 2: Merge current resume's details with existing details
+        const allDetails = {
+          ...existingDetails,
+          [resume.filename]: detailData
+        };
+
         const finalReport: Report = {
           id: reportRef.id,
           jobDescription: fd?.jobDescription ?? jobDescription,
           rankedResumes: fd?.rankedResumes ?? merged,
-          resumes: (fd?.resumes ?? finalResumes).map((r:any) => ({...r, content: resume.filename === r.filename ? resume.content : ''})),
-          details: { [resume.filename]: detailData }, // only this call’s detail; UI can fetch others as needed
+          resumes: (fd?.resumes ?? finalResumes).map((r:any) => ({
+            ...r, 
+            content: resume.filename === r.filename ? resume.content : '',
+            candidateName: allDetails[r.filename]?.candidateName
+          })),
+          details: allDetails, // Include all details from subcollection
           statuses: fd?.statuses ?? statuses,
           createdAt: (fd?.createdAt?.toDate?.() ?? new Date()).toISOString(),
         };
@@ -266,9 +298,14 @@ export async function updateAndReanalyzeReport(
                 enqueue({ type: 'status', message: `Analyzing new resume: ${resume.filename}...` });
                 const skillsPromise = retry(() => parseResumeSkillsFlow({ resumeText: resume.content! }));
                 const keywordsPromise = retry(() => matchKeywordsToResumeFlow({ resumeText: resume.content!, jobDescription }));
-                const [skills, keywords] = await Promise.all([skillsPromise, keywordsPromise]);
+                const namePromise = retry(() => extractCandidateNameFlow({ resumeText: resume.content! }));
+                const [skills, keywords, nameResult] = await Promise.all([skillsPromise, keywordsPromise, namePromise]);
                 
-                const detailData = { skills, keywords };
+                const detailData = { 
+                  skills, 
+                  keywords, 
+                  candidateName: nameResult.candidateName || undefined
+                };
                 allDetails[resume.filename] = detailData;
 
                 const detailRef = doc(db, 'users', userId, 'analysisReports', reportId, 'details', resume.filename);
@@ -319,7 +356,11 @@ export async function updateAndReanalyzeReport(
             id: reportRef.id,
             jobDescription,
             rankedResumes: finalDocData?.rankedResumes || [],
-            resumes: finalDocData?.resumes.map((r:any) => ({...r, content: allResumesMap.get(r.filename)?.content || ''})) || [],
+            resumes: finalDocData?.resumes.map((r:any) => ({
+              ...r, 
+              content: allResumesMap.get(r.filename)?.content || '',
+              candidateName: allDetails[r.filename]?.candidateName
+            })) || [],
             details: allDetails,
             statuses: finalDocData?.statuses || {},
             createdAt: (finalDocData?.createdAt?.toDate() ?? new Date()).toISOString(),
@@ -387,7 +428,10 @@ export async function getAnalysisReports(
         id: reportId,
         jobDescription: data.jobDescription,
         rankedResumes: rankedResumes,
-        resumes: data.resumes || [],
+        resumes: (data.resumes || []).map((r: any) => ({
+          ...r,
+          candidateName: details[r.filename]?.candidateName
+        })),
         details: details,
         statuses: statuses,
         createdAt: (data.createdAt?.toDate() ?? new Date()).toISOString(),

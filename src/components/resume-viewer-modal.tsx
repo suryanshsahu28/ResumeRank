@@ -7,12 +7,18 @@ import type { AnalysisResult } from '@/lib/types';
 
 const pdfjsLibPromise = import('pdfjs-dist');
 let pdfjsLib: typeof PdfJs | null = null;
-pdfjsLibPromise.then(lib => {
-  pdfjsLib = lib;
-  if (pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.3.136/build/pdf.worker.mjs`;
+let isInitialized = false;
+
+const initializePdfJs = async () => {
+  if (!isInitialized) {
+    pdfjsLib = await pdfjsLibPromise;
+    if (pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.3.136/build/pdf.worker.mjs`;
+      isInitialized = true;
+    }
   }
-});
+  return pdfjsLib;
+};
 
 interface ResumeViewerModalProps {
   isOpen: boolean;
@@ -38,15 +44,13 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ fileUrl, onDownload }) => {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        let isMounted = true;
+        let pdfUrl: string | null = null;
+
         const renderPdf = async () => {
             try {
-                if (!pdfjsLib) {
-                    pdfjsLib = await pdfjsLibPromise;
-                    if (pdfjsLib) {
-                        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.3.136/build/pdf.worker.mjs`;
-                    }
-                }
-                if (!fileUrl || !containerRef.current || !pdfjsLib) return;
+                const pdfLib = await initializePdfJs();
+                if (!fileUrl || !containerRef.current || !pdfLib || !isMounted) return;
                 
                 setStatus('loading');
                 const container = containerRef.current;
@@ -60,13 +64,19 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ fileUrl, onDownload }) => {
                     throw new Error(`Failed to fetch PDF: ${response.status} ${response.statusText}`);
                 }
                 const pdfBlob = await response.blob();
-                const pdfUrl = URL.createObjectURL(pdfBlob);
+                pdfUrl = URL.createObjectURL(pdfBlob);
 
-                const loadingTask = pdfjsLib.getDocument(pdfUrl);
+                if (!isMounted) return; // Check if component is still mounted
+
+                const loadingTask = pdfLib.getDocument(pdfUrl);
                 const pdf = await loadingTask.promise;
                 const numPages = pdf.numPages;
 
+                if (!isMounted) return; // Check again before rendering
+
                 for (let i = 1; i <= numPages; i++) {
+                    if (!isMounted) break; // Stop rendering if component unmounted
+                    
                     const page = await pdf.getPage(i);
                     const containerWidth = container.clientWidth || 800;
                     const viewport = page.getViewport({ scale: 1 });
@@ -88,18 +98,28 @@ const PdfPreview: React.FC<PdfPreviewProps> = ({ fileUrl, onDownload }) => {
                     };
                     await page.render(renderContext).promise;
                 }
-                setStatus('success');
                 
-                // Clean up the object URL after rendering
-                URL.revokeObjectURL(pdfUrl);
+                if (isMounted) {
+                    setStatus('success');
+                }
             } catch (err) {
-                console.error('Error rendering PDF with PDF.js:', err);
-                setError('Could not display PDF preview. The file might be corrupted or in an unsupported format.');
-                setStatus('error');
+                if (isMounted) {
+                    console.error('Error rendering PDF with PDF.js:', err);
+                    setError('Could not display PDF preview. The file might be corrupted or in an unsupported format.');
+                    setStatus('error');
+                }
             }
         };
 
         renderPdf();
+
+        // Cleanup function
+        return () => {
+            isMounted = false;
+            if (pdfUrl) {
+                URL.revokeObjectURL(pdfUrl);
+            }
+        };
     }, [fileUrl]);
 
     return (
@@ -171,17 +191,6 @@ export const ResumeViewerModal: React.FC<ResumeViewerModalProps> = ({
   
   const isPdf = result.filename?.toLowerCase().endsWith('.pdf');
 
-  // Debug logging
-  useEffect(() => {
-    if (isOpen) {
-      console.log('ResumeViewerModal Debug:', {
-        filename: result.filename,
-        isPdf,
-        resumeUrl,
-        resumeContent: resumeContent ? 'has content' : 'no content'
-      });
-    }
-  }, [isOpen, result.filename, isPdf, resumeUrl, resumeContent]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -217,7 +226,9 @@ export const ResumeViewerModal: React.FC<ResumeViewerModalProps> = ({
   return (
     <div ref={modalRef} className="fixed inset-0 bg-black/75 z-50 flex flex-col p-4" role="dialog" aria-modal="true">
       <header className="flex-shrink-0 flex items-center justify-between text-white p-2 bg-slate-800/50 rounded-t-lg">
-        <h2 className="text-lg font-semibold truncate" title={result.filename}>Viewing: {result.filename}</h2>
+        <h2 className="text-lg font-semibold truncate" title={result.filename}>
+          Viewing: {details?.candidateName || result.filename}
+        </h2>
         <div className="flex items-center gap-4">
             <button onClick={handleFullscreen} className="text-slate-300 hover:text-white" title="Toggle Fullscreen"><ArrowsPointingOutIcon /></button>
             <button onClick={onClose} className="text-slate-300 hover:text-white" title="Close (Esc)"><XMarkIcon /></button>
