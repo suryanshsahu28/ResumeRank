@@ -584,7 +584,7 @@ const SIZE=100;
   
   const jdFile = analysisResult?.resumes.find(r => r.filename === (jobDescriptionFile[0]?.name));
 
-  const ReanalyzeSection = () => (
+  const ReanalyzeSection = React.useMemo(() => (
     <div className="mt-8 space-y-4">
       <Card className="bg-slate-100">
         <CardHeader>
@@ -647,7 +647,7 @@ const SIZE=100;
         </CardContent>
       </Card>
     </div>
-  );
+  ), [isDragOver, resumeFiles, isLoading, loadingStatus, canReanalyze, handleResumeUpload, handleReanalyze, removeResumeFile, resumeFileInputRef]);
 
 
   return (
@@ -710,7 +710,7 @@ const SIZE=100;
             </div>
 
 
-            {showReanalyzeUI && <ReanalyzeSection />}
+            {showReanalyzeUI && <>{ReanalyzeSection}</>}
             
             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "all" | "shortlisted" | "rejected")}>
               <div className="flex justify-between items-center mb-4">
