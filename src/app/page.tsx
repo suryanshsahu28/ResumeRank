@@ -18,7 +18,12 @@ export type Report = Omit<AnalysisResult, 'resumes'> & {
     url: string;
   },
   createdAt: string, 
-  resumes: (Resume & {url?: string})[]
+  resumes: (Resume & {url?: string})[],
+  // Sharing fields (optional for backward compatibility)
+  ownerId?: string;
+  role?: 'view' | 'edit';
+  sharedAt?: string;
+  collaborators?: Record<string, { role: 'view' | 'edit'; addedBy: string; addedAt: string }>;
 };
 
 
@@ -53,7 +58,10 @@ export default function Home() {
   }
   
   if(selectedReport) {
-    return <MainPage onBack={handleBackToDashboard} existingResult={selectedReport} onAnalysisComplete={handleAnalysisComplete} />;
+    const userRole = selectedReport.ownerId && selectedReport.ownerId !== user?.uid 
+      ? (selectedReport.role || 'view') 
+      : 'owner';
+    return <MainPage onBack={handleBackToDashboard} existingResult={selectedReport} onAnalysisComplete={handleAnalysisComplete} userRole={userRole} />;
   }
 
   if (showUploader) {

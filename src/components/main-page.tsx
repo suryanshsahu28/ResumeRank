@@ -46,6 +46,7 @@ interface MainPageProps {
   onBack: () => void;
   existingResult?: Report | null;
   onAnalysisComplete: (report: Report) => void;
+  userRole?: 'view' | 'edit' | 'owner';
 }
 
 const EmptyState = ({isFiltered = false}: {isFiltered?: boolean}) => (
@@ -66,7 +67,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
     );
 }
 
-export default function MainPage({ onBack, existingResult, onAnalysisComplete }: MainPageProps) {
+export default function MainPage({ onBack, existingResult, onAnalysisComplete, userRole = 'owner' }: MainPageProps) {
   const [jobDescription, setJobDescription] = React.useState(existingResult?.jobDescription || '');
   const [jobDescriptionFile, setJobDescriptionFile] = React.useState<File[]>([]);
   const [resumeFiles, setResumeFiles] = React.useState<File[]>([]);
@@ -113,12 +114,23 @@ export default function MainPage({ onBack, existingResult, onAnalysisComplete }:
   }, [activeTab]);
   
   const handleStatusChange = async (filename: string, status: CandidateStatus) => {
+      if (!canEdit) {
+          toast({ 
+              title: 'View Only Access', 
+              description: 'You have view-only access to this report. Contact the owner to request edit permissions.', 
+              variant: 'destructive' 
+          });
+          return;
+      }
+
       const newStatuses = { ...candidateStatuses, [filename]: status };
       setCandidateStatuses(newStatuses);
 
       if (analysisResult?.id && user?.uid) {
           try {
-              await updateAnalysisReportStatus(user.uid, analysisResult.id, newStatuses);
+              // For shared reports, use the ownerId; otherwise use current user's uid
+              const reportOwnerId = (analysisResult as any).ownerId || user.uid;
+              await updateAnalysisReportStatus(reportOwnerId, analysisResult.id, newStatuses);
           } catch(e: any) {
               toast({ title: 'Error Saving Status', description: e.message, variant: 'destructive' });
               // Revert state if API call fails
@@ -372,6 +384,15 @@ const handleAnalyze = async () => {
 
 
   const handleReanalyze = async () => {
+    if (!canEdit) {
+      toast({ 
+        title: 'View Only Access', 
+        description: 'You have view-only access to this report. Contact the owner to request edit permissions.', 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
     if (!user?.uid || !analysisResult?.id) {
       toast({ title: 'Authentication or Report ID missing', variant: 'destructive' });
       return;
@@ -410,11 +431,13 @@ const handleAnalyze = async () => {
             };    
 
             try {
+                // For shared reports, use the ownerId; otherwise use current user's uid
+                const reportOwnerId = (analysisResult as any).ownerId || user.uid;
                 const stream = await analyzeSingleResumeAction(
                   jdText,
                   meta,
                   weights,
-                  user.uid,
+                  reportOwnerId,
                   payload,
                   { reportId: analysisResult.id } // append into existing report
                 );
@@ -554,7 +577,8 @@ const SIZE=100;
   };
 
   const canAnalyze = !isLoading && resumeFiles.length > 0 && (jobDescriptionFile.length > 0 || jobDescription.trim().length > 0);
-  const canReanalyze = !isLoading && resumeFiles.length > 0;
+  const canReanalyze = !isLoading && resumeFiles.length > 0 && userRole !== 'view';
+  const canEdit = userRole !== 'view';
   
   const filteredResumes = React.useMemo(() => {
     if (!analysisResult) return [];
@@ -662,7 +686,7 @@ const SIZE=100;
                     <ArrowLeft className="mr-2 h-4 w-4" />
                     Back to Dashboard
                 </Button>
-                 {!showReanalyzeUI && (
+                 {!showReanalyzeUI && canEdit && (
                     <Button onClick={() => setShowReanalyzeUI(true)} disabled={isLoading}>
                         <Replace className="mr-2 h-4 w-4" />
                         Add or Replace Resumes
@@ -710,7 +734,7 @@ const SIZE=100;
             </div>
 
 
-            {showReanalyzeUI && <>{ReanalyzeSection}</>}
+            {showReanalyzeUI && canEdit && <>{ReanalyzeSection}</>}
             
             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "all" | "shortlisted" | "rejected")}>
               <div className="flex justify-between items-center mb-4">
@@ -744,6 +768,7 @@ const SIZE=100;
                                   status={candidateStatuses[rankedResume.filename] || 'none'}
                                   onStatusChange={(newStatus) => handleStatusChange(rankedResume.filename, newStatus)}
                                   weights={weights}
+                                  canEdit={canEdit}
                               />
                           </div>
                            <Button variant="ghost" size="icon" onClick={() => handleView(rankedResume.filename)}>

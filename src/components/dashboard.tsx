@@ -1,13 +1,13 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { deleteAnalysisReport, getAnalysisReports } from '@/app/actions';
+import { deleteAnalysisReport, getAnalysisReports, listSharedWithMe, getReportDetails, ensureUserDocument } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Loader2, PlusCircle, Inbox, AlertTriangle, FileText, CheckCircle,
   BarChart3, Users, Calendar, Eye, Plus, MoreVertical, Trash2, Grid3X3,
-  List, Clock, FolderOpen, Search, LogOut, Settings, User
+  List, Clock, FolderOpen, Search, LogOut, Settings, User, Share2
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import Header from './layout/header';
@@ -30,6 +30,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
+import { ShareDialog } from './share-dialog';
+import type { ShareRole } from '@/lib/types';
 
 /* ---------------------------------------------------------
    Helpers
@@ -73,12 +75,16 @@ export default function Dashboard({
 }) {
   const { user, logout } = useAuth();
   const [reports, setReports] = useState<Report[]>([]);
+  const [sharedReports, setSharedReports] = useState<Report[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'completed'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'shared'>('all');
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [reportToShare, setReportToShare] = useState<Report | null>(null);
+  const [reportCollaborators, setReportCollaborators] = useState<Record<string, { role: ShareRole; addedBy: string; addedAt: string; email?: string }>>({});
   const { toast } = useToast();
 
   /* ---------------------------------------------------------
@@ -87,19 +93,37 @@ export default function Dashboard({
   useEffect(() => {
     if (!user?.uid) return;
     setIsLoading(true);
-    getAnalysisReports(user.uid)
-      .then((data: Report[]) => {
-        // No placeholder statuses; derive completion via isCompleted()
-        setReports(data ?? []);
-      })
-      .catch(err => setError(err?.message || 'Failed to load reports.'))
-      .finally(() => setIsLoading(false));
+    
+    const loadReports = async () => {
+      try {
+        // Ensure user document exists with email
+        if (user.email) {
+          await ensureUserDocument(user.uid, user.email);
+        }
+
+        const [myReports, shared] = await Promise.all([
+          getAnalysisReports(user.uid),
+          listSharedWithMe(user.uid)
+        ]);  
+        setReports(myReports ?? []);
+        setSharedReports(shared ?? []);
+      } catch (err: any) {
+        console.error('Error loading reports:', err);
+        setError(err?.message || 'Failed to load reports.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadReports();
   }, [user]);
 
   /* ---------------------------------------------------------
      Derived UI state
   --------------------------------------------------------- */
-  const completedCount = useMemo(() => reports.filter(isCompleted).length, [reports]);
+  const ownCount = useMemo(() => reports.length, [reports]);
+  const sharedCount = useMemo(() => sharedReports.length, [sharedReports]);
+  const totalCount = useMemo(() => ownCount + sharedCount, [ownCount, sharedCount]);
 
   const filteredProjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -107,9 +131,9 @@ export default function Dashboard({
       ((p.jobRole ?? p.jobDescriptionSummary ?? p.jobDescription) ?? '').toLowerCase().includes(q);
 
     if (activeTab === 'all') return reports.filter(bySearch);
-    if (activeTab === 'completed') return reports.filter(p => bySearch(p) && isCompleted(p));
+    if (activeTab === 'shared') return sharedReports.filter(bySearch);
     return reports.filter(bySearch);
-  }, [reports, searchQuery, activeTab]);
+  }, [reports, sharedReports, searchQuery, activeTab]);
 
   const getMatchScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-600 bg-green-100';
@@ -165,7 +189,7 @@ export default function Dashboard({
                   </div>
                   <div className="flex-1">
                     <h3 className="font-semibold text-gray-800 text-lg leading-tight line-clamp-2">
-                      {project.jobRole ?? 'Untitled Project'}
+                      {project.jobRole ?? 'Untitled Analysis'}
                     </h3>
                     {project.jobDescriptionSummary && (
                       <p className="text-sm text-gray-600 mt-1 line-clamp-1">
@@ -185,22 +209,46 @@ export default function Dashboard({
                     {isCompleted(project) ? 'Completed' : 'Ongoing'}
                   </Badge>
 
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => setReportToDelete(project)}
-                        className="cursor-pointer text-red-600"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  {activeTab !== 'shared' && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            setReportToShare(project);
+                            try {
+                              const reportDetails = await getReportDetails(user?.uid || '', project.id);
+                              setReportCollaborators(reportDetails.collaborators || {});
+                            } catch (error) {
+                              console.error('Failed to load collaborators:', error);
+                              setReportCollaborators({});
+                            }
+                            setShareDialogOpen(true);
+                          }}
+                          className="cursor-pointer"
+                        >
+                          <Share2 className="mr-2 h-4 w-4" />
+                          Share
+                          {Object.keys(project.collaborators || {}).length > 0 && (
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              {Object.keys(project.collaborators || {}).length}
+                            </Badge>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setReportToDelete(project)}
+                          className="cursor-pointer text-red-600"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -295,7 +343,7 @@ export default function Dashboard({
                     </div>
                     <div>
                       <div className="font-semibold text-gray-800 line-clamp-1">
-                        {project.jobRole ?? 'Untitled Project'}
+                        {project.jobRole ?? 'Untitled Analysis'}
                       </div>
                       {project.jobDescriptionSummary && (
                         <div className="text-xs text-gray-600 mt-1 line-clamp-1">
@@ -340,22 +388,24 @@ export default function Dashboard({
                       <BarChart3 className="w-4 h-4" />
                     </Button>
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                          <MoreVertical className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => setReportToDelete(project)}
-                          className="cursor-pointer text-red-600"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {activeTab !== 'shared' && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => setReportToDelete(project)}
+                            className="cursor-pointer text-red-600"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -430,7 +480,7 @@ export default function Dashboard({
               Analysis Projects Dashboard
             </h2>
             <p className="text-lg text-gray-600">
-              Manage and review all resume analysis projects
+              Manage and review all resume analysis
             </p>
           </div>
 
@@ -440,7 +490,7 @@ export default function Dashboard({
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                   <Input
-                    placeholder="Search projects by title or description..."
+                    placeholder="Search analysis by title or description..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 h-12 text-base"
@@ -457,16 +507,16 @@ export default function Dashboard({
             </CardContent>
           </Card>
 
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'all' | 'completed')} className="w-full">
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'all' | 'shared')} className="w-full">
             <div className="flex items-center justify-between">
-              <TabsList className="grid grid-cols-2 max-w-md">
+              <TabsList className="grid grid-cols-2 max-w-lg">
                 <TabsTrigger value="all" className="flex items-center gap-2">
                   <FileText className="w-4 h-4" />
-                  All ({reports.length})
+                  My Analysis ({ownCount})
                 </TabsTrigger>
-                <TabsTrigger value="completed" className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4" />
-                  Completed ({completedCount})
+                <TabsTrigger value="shared" className="flex items-center gap-2">
+                  <Share2 className="w-4 h-4" />
+                  Shared ({sharedCount})
                 </TabsTrigger>
               </TabsList>
 
@@ -513,9 +563,9 @@ export default function Dashboard({
                 <Card>
                   <CardContent className="p-12 text-center">
                     <Inbox className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No projects found</h3>
+                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No analysis found</h3>
                     <p className="text-gray-500">
-                      {searchQuery ? 'Try adjusting your search terms.' : 'Create your first analysis project to get started.'}
+                      {searchQuery ? 'Try adjusting your search terms.' : 'Create your first analysis to get started.'}
                     </p>
                   </CardContent>
                 </Card>
@@ -525,13 +575,14 @@ export default function Dashboard({
               )}
             </TabsContent>
 
-            <TabsContent value="completed" className="space-y-6 mt-8">
+
+            <TabsContent value="shared" className="space-y-6 mt-8">
               {!isLoading && !error && filteredProjects.length === 0 && (
                 <Card>
                   <CardContent className="p-12 text-center">
                     <Inbox className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No completed projects yet</h3>
-                    <p className="text-gray-500">Completed projects will appear here once analyses finish.</p>
+                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No shared analysis</h3>
+                    <p className="text-gray-500">Analysis shared with you will appear here.</p>
                   </CardContent>
                 </Card>
               )}
@@ -541,9 +592,10 @@ export default function Dashboard({
             </TabsContent>
           </Tabs>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <StatCard icon={<FolderOpen />} label="Total Projects" value={reports.length} />
-            <StatCard icon={<CheckCircle className="text-green-600" />} label="Completed" value={completedCount} />
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <StatCard icon={<FolderOpen />} label="My Analysis" value={ownCount} />
+            <StatCard icon={<Share2 className="text-blue-600" />} label="Shared With Me" value={sharedCount} />
+            <StatCard icon={<Users className="text-purple-600" />} label="Total Analysis" value={totalCount} />
             <StatCard icon={<Users className="text-purple-600" />} label="Total Candidates" value={reports.reduce((total, r) => total + (r.resumes?.length ?? 0), 0)} />
           </div>
         </div>
@@ -565,6 +617,39 @@ export default function Dashboard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ShareDialog
+        isOpen={shareDialogOpen}
+        onClose={() => {
+          setShareDialogOpen(false);
+          setReportToShare(null);
+          setReportCollaborators({});
+        }}
+        reportId={reportToShare?.id || ''}
+        ownerId={user?.uid || ''}
+        collaborators={reportCollaborators}
+        onShareSuccess={async () => {
+          // Refresh the reports list and collaborators
+          if (user?.uid) {
+            try {
+              const [reportsData, sharedData] = await Promise.all([
+                getAnalysisReports(user.uid),
+                listSharedWithMe(user.uid)
+              ]);
+              setReports(reportsData ?? []);
+              setSharedReports(sharedData ?? []);
+              
+              // Refresh collaborators for the current report
+              if (reportToShare?.id) {
+                const reportDetails = await getReportDetails(user.uid, reportToShare.id);
+                setReportCollaborators(reportDetails.collaborators || {});
+              }
+            } catch (err) {
+              console.error('Failed to refresh reports:', err);
+            }
+          }
+        }}
+      />
     </div>
   );
 }

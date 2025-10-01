@@ -43,7 +43,11 @@ import {
   deleteDoc,
   arrayUnion,
   setDoc,
+  runTransaction,
+  arrayRemove,
+  where,
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import {ref, uploadBytes, getDownloadURL, deleteObject, listAll} from 'firebase/storage';
 
 import type {
@@ -51,6 +55,9 @@ import type {
   MetricWeights,
   CandidateStatus,
   AnalysisDetails,
+  ShareRole,
+  Collaborator,
+  SharedReport,
 } from '@/lib/types';
 import type { Report } from '@/app/page';
 
@@ -511,6 +518,8 @@ export async function getAnalysisReports(
         details: details,
         statuses: statuses,
         createdAt: (data.createdAt?.toDate() ?? new Date()).toISOString(),
+        // Include collaborators if they exist
+        collaborators: data.collaborators || {},
       } as Report;
       
       console.log('Report loaded:', {
@@ -561,5 +570,442 @@ export async function deleteAnalysisReport(
   } catch (e: any) {
     console.error('Error deleting report:', e);
     throw new Error('Failed to delete the analysis report.');
+  }
+}
+
+// Helper function to find user by email (simplified approach)
+async function findUserByEmail(email: string): Promise<string | null> {
+  try {
+    // For now, we'll generate a consistent UID based on email
+    // In production, you'd use Firebase Admin SDK to look up users by email
+    // This is a simplified approach for demo purposes
+    const emailHash = btoa(email).replace(/[^a-zA-Z0-9]/g, '').substring(0, 28);
+    return emailHash;
+  } catch (error) {
+    console.error('Error generating user ID from email:', error);
+    return null;
+  }
+}
+
+// Helper function to get current user's email from their UID
+async function getCurrentUserEmail(userId: string): Promise<string | null> {
+  try {
+    // For now, we'll use a simple approach to get the current user's email
+    // In production, you'd get this from the auth context or user document
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (userSnap.exists()) {
+      const userData = userSnap.data();
+      return userData.email || null;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting user email:', error);
+    return null;
+  }
+}
+
+// Function to ensure user document exists with email
+export async function ensureUserDocument(userId: string, email: string): Promise<void> {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      // Create user document with email
+      await setDoc(userRef, {
+        email: email,
+        sharedReports: [],
+        createdAt: serverTimestamp(),
+      });
+    } else {
+      // Update email if not present
+      const userData = userSnap.data();
+      if (!userData.email) {
+        await updateDoc(userRef, {
+          email: email,
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error ensuring user document:', error);
+    throw error;
+  }
+}
+
+// Sharing functions
+export async function shareReport(
+  ownerId: string,
+  reportId: string,
+  collaboratorEmail: string,
+  role: ShareRole
+): Promise<void> {
+  try {
+    if (!ownerId || !reportId || !collaboratorEmail) {
+      throw new Error('Missing required parameters for sharing.');
+    }
+
+    // Generate a consistent UID from email
+    const collaboratorId = await findUserByEmail(collaboratorEmail);
+    if (!collaboratorId) {
+      throw new Error('Failed to generate user ID from email.');
+    }
+
+    await runTransaction(db, async (transaction) => {
+      const reportRef = doc(db, 'users', ownerId, 'analysisReports', reportId);
+      const collaboratorRef = doc(db, 'users', collaboratorId);
+
+      // Get current report data
+      const reportSnap = await transaction.get(reportRef);
+      if (!reportSnap.exists()) {
+        throw new Error('Report not found.');
+      }
+
+      const reportData = reportSnap.data();
+      const currentCollaborators = reportData.collaborators || {};
+      const currentCollaboratorIds = reportData.collaboratorIds || [];
+      const currentCollabVersion = reportData.collabVersion || 0;
+
+      // Check if already shared
+      if (currentCollaborators[collaboratorId]) {
+        throw new Error('Report is already shared with this user.');
+      }
+
+      // Get collaborator data
+      const collaboratorSnap = await transaction.get(collaboratorRef);
+      const collaboratorData = collaboratorSnap.exists() ? collaboratorSnap.data() : {};
+      const currentSharedReports = collaboratorData.sharedReports || [];
+
+      // Add to report
+      const newCollaborator: Collaborator = {
+        role,
+        addedBy: ownerId,
+        addedAt: new Date().toISOString(),
+        email: collaboratorEmail, // Store email for display purposes
+      };
+
+      transaction.update(reportRef, {
+        [`collaborators.${collaboratorId}`]: newCollaborator,
+        collaboratorIds: arrayUnion(collaboratorId),
+        collabVersion: currentCollabVersion + 1,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Add to collaborator's sharedReports
+      const newSharedReport: SharedReport = {
+        ownerId,
+        reportId,
+        role,
+        addedAt: new Date().toISOString(),
+        email: collaboratorEmail, // Store email for display
+      };
+
+      transaction.set(collaboratorRef, {
+        ...collaboratorData,
+        sharedReports: [...currentSharedReports, newSharedReport],
+      }, { merge: true });
+
+      console.log('Sharing report:', {
+        ownerId,
+        reportId,
+        collaboratorId,
+        collaboratorEmail,
+        role,
+        newSharedReport
+      });
+    });
+
+  } catch (e: any) {
+    console.error('Error sharing report:', e);
+    throw new Error(e.message || 'Failed to share the report.');
+  }
+}
+
+export async function unshareReport(
+  ownerId: string,
+  reportId: string,
+  collaboratorId: string
+): Promise<void> {
+  try {
+    if (!ownerId || !reportId || !collaboratorId) {
+      throw new Error('Missing required parameters for unsharing.');
+    }
+
+    await runTransaction(db, async (transaction) => {
+      const reportRef = doc(db, 'users', ownerId, 'analysisReports', reportId);
+      const collaboratorRef = doc(db, 'users', collaboratorId);
+
+      // Get current report data
+      const reportSnap = await transaction.get(reportRef);
+      if (!reportSnap.exists()) {
+        throw new Error('Report not found.');
+      }
+
+      const reportData = reportSnap.data();
+      const currentCollaborators = reportData.collaborators || {};
+      const currentCollaboratorIds = reportData.collaboratorIds || [];
+      const currentCollabVersion = reportData.collabVersion || 0;
+
+      // Check if shared
+      if (!currentCollaborators[collaboratorId]) {
+        throw new Error('Report is not shared with this user.');
+      }
+
+      // Get collaborator data
+      const collaboratorSnap = await transaction.get(collaboratorRef);
+      const collaboratorData = collaboratorSnap.exists() ? collaboratorSnap.data() : {};
+      const currentSharedReports = collaboratorData.sharedReports || [];
+
+      // Remove from report
+      const updatedCollaborators = { ...currentCollaborators };
+      delete updatedCollaborators[collaboratorId];
+
+      transaction.update(reportRef, {
+        collaborators: updatedCollaborators,
+        collaboratorIds: arrayRemove(collaboratorId),
+        collabVersion: currentCollabVersion + 1,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Remove from collaborator's sharedReports
+      const updatedSharedReports = currentSharedReports.filter(
+        (sr: SharedReport) => !(sr.ownerId === ownerId && sr.reportId === reportId)
+      );
+
+      transaction.set(collaboratorRef, {
+        ...collaboratorData,
+        sharedReports: updatedSharedReports,
+      }, { merge: true });
+    });
+
+  } catch (e: any) {
+    console.error('Error unsharing report:', e);
+    throw new Error(e.message || 'Failed to unshare the report.');
+  }
+}
+
+export async function updateShareRole(
+  ownerId: string,
+  reportId: string,
+  collaboratorId: string,
+  newRole: ShareRole
+): Promise<void> {
+  try {
+    if (!ownerId || !reportId || !collaboratorId) {
+      throw new Error('Missing required parameters for updating share role.');
+    }
+
+    await runTransaction(db, async (transaction) => {
+      const reportRef = doc(db, 'users', ownerId, 'analysisReports', reportId);
+      const collaboratorRef = doc(db, 'users', collaboratorId);
+
+      // Get current report data
+      const reportSnap = await transaction.get(reportRef);
+      if (!reportSnap.exists()) {
+        throw new Error('Report not found.');
+      }
+
+      const reportData = reportSnap.data();
+      const currentCollaborators = reportData.collaborators || {};
+      const currentCollabVersion = reportData.collabVersion || 0;
+
+      // Check if shared
+      if (!currentCollaborators[collaboratorId]) {
+        throw new Error('Report is not shared with this user.');
+      }
+
+      // Get collaborator data
+      const collaboratorSnap = await transaction.get(collaboratorRef);
+      const collaboratorData = collaboratorSnap.exists() ? collaboratorSnap.data() : {};
+      const currentSharedReports = collaboratorData.sharedReports || [];
+
+      // Update role in report
+      const updatedCollaborator = {
+        ...currentCollaborators[collaboratorId],
+        role: newRole,
+      };
+
+      transaction.update(reportRef, {
+        [`collaborators.${collaboratorId}`]: updatedCollaborator,
+        collabVersion: currentCollabVersion + 1,
+        updatedAt: serverTimestamp(),
+      });
+
+      // Update role in collaborator's sharedReports
+      const updatedSharedReports = currentSharedReports.map((sr: SharedReport) =>
+        sr.ownerId === ownerId && sr.reportId === reportId
+          ? { ...sr, role: newRole }
+          : sr
+      );
+
+      transaction.set(collaboratorRef, {
+        ...collaboratorData,
+        sharedReports: updatedSharedReports,
+      }, { merge: true });
+    });
+
+  } catch (e: any) {
+    console.error('Error updating share role:', e);
+    throw new Error(e.message || 'Failed to update share role.');
+  }
+}
+
+export async function getReportDetails(
+  userId: string,
+  reportId: string
+): Promise<Report & { collaborators?: Record<string, Collaborator> }> {
+  try {
+    if (!userId || !reportId) {
+      throw new Error('User not authenticated or invalid report ID');
+    }
+
+    const reportRef = doc(db, 'users', userId, 'analysisReports', reportId);
+    const reportSnap = await getDoc(reportRef);
+    
+    if (!reportSnap.exists()) {
+      throw new Error('Report not found.');
+    }
+
+    const data = reportSnap.data();
+    const reportId_doc = reportSnap.id;
+
+    // Get details
+    const detailsCollectionRef = collection(db, 'users', userId, 'analysisReports', reportId_doc, 'details');
+    const detailsSnapshot = await getDocs(detailsCollectionRef);
+    const details = detailsSnapshot.docs.reduce((acc, detailDoc) => {
+      acc[detailDoc.id] = detailDoc.data() as AnalysisDetails[string];
+      return acc;
+    }, {} as AnalysisDetails);
+
+    const rankedResumes = data.rankedResumes || [];
+    const statuses = data.statuses || rankedResumes.reduce((acc: Record<string, CandidateStatus>, r: any) => {
+      acc[r.filename] = 'none';
+      return acc;
+    }, {});
+
+    return {
+      id: reportId_doc,
+      jobDescription: data.jobDescription,
+      jobRole: data.jobRole,
+      jobDescriptionSummary: data.jobDescriptionSummary,
+      jobDescriptionFile: data.jobDescriptionFile,
+      rankedResumes: rankedResumes,
+      resumes: (data.resumes || []).map((r: any) => ({
+        ...r,
+        candidateName: details[r.filename]?.candidateName
+      })),
+      details: details,
+      statuses: statuses,
+      createdAt: (data.createdAt?.toDate() ?? new Date()).toISOString(),
+      // Include collaborators if they exist
+      collaborators: data.collaborators || {},
+    } as Report & { collaborators?: Record<string, Collaborator> };
+
+  } catch (e: any) {
+    console.error('Error fetching report details:', e);
+    throw new Error('Failed to fetch report details.');
+  }
+}
+
+export async function listSharedWithMe(userId: string): Promise<Report[]> {
+  try {
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
+    // Get current user's email to find their collaborator ID
+    const currentUserEmail = await getCurrentUserEmail(userId);
+    if (!currentUserEmail) {
+      console.log('No email found for current user');
+      return [];
+    }
+
+    // Generate the collaborator ID from email (same logic as in shareReport)
+    const collaboratorId = await findUserByEmail(currentUserEmail);
+    if (!collaboratorId) {
+      console.log('Could not generate collaborator ID from email');
+      return [];
+    }
+
+    // Get user's sharedReports using the collaborator ID
+    const userRef = doc(db, 'users', collaboratorId);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      console.log('No user document found for collaborator ID:', collaboratorId);
+      return [];
+    }
+
+    const userData = userSnap.data();
+    const sharedReports = userData.sharedReports || [];
+
+    console.log('User data:', userData);
+    console.log('Shared reports from user doc:', sharedReports);
+
+    if (sharedReports.length === 0) {
+      console.log('No shared reports found for user');
+      return [];
+    }
+
+    // Fetch all shared reports
+    const reportPromises = sharedReports.map(async (sharedReport: SharedReport) => {
+      try {
+        const reportRef = doc(db, 'users', sharedReport.ownerId, 'analysisReports', sharedReport.reportId);
+        const reportSnap = await getDoc(reportRef);
+        
+        if (!reportSnap.exists()) {
+          return null;
+        }
+
+        const data = reportSnap.data();
+        const reportId = reportSnap.id;
+
+        // Get details
+        const detailsCollectionRef = collection(db, 'users', sharedReport.ownerId, 'analysisReports', reportId, 'details');
+        const detailsSnapshot = await getDocs(detailsCollectionRef);
+        const details = detailsSnapshot.docs.reduce((acc, detailDoc) => {
+          acc[detailDoc.id] = detailDoc.data() as AnalysisDetails[string];
+          return acc;
+        }, {} as AnalysisDetails);
+
+        const rankedResumes = data.rankedResumes || [];
+        const statuses = data.statuses || rankedResumes.reduce((acc: Record<string, CandidateStatus>, r: any) => {
+          acc[r.filename] = 'none';
+          return acc;
+        }, {});
+
+        return {
+          id: reportId,
+          jobDescription: data.jobDescription,
+          jobRole: data.jobRole,
+          jobDescriptionSummary: data.jobDescriptionSummary,
+          jobDescriptionFile: data.jobDescriptionFile,
+          rankedResumes: rankedResumes,
+          resumes: (data.resumes || []).map((r: any) => ({
+            ...r,
+            candidateName: details[r.filename]?.candidateName
+          })),
+          details: details,
+          statuses: statuses,
+          createdAt: (data.createdAt?.toDate() ?? new Date()).toISOString(),
+          // Sharing metadata
+          ownerId: sharedReport.ownerId,
+          role: sharedReport.role,
+          sharedAt: sharedReport.addedAt,
+          collaboratorEmail: sharedReport.email,
+        } as Report & { ownerId: string; role: ShareRole; sharedAt: string; collaboratorEmail?: string };
+      } catch (error) {
+        console.error(`Error fetching shared report ${sharedReport.reportId}:`, error);
+        return null;
+      }
+    });
+
+    const reports = await Promise.all(reportPromises);
+    return reports.filter((report): report is Report & { ownerId: string; role: ShareRole; sharedAt: string; collaboratorEmail?: string } => report !== null);
+
+  } catch (e: any) {
+    console.error('Error fetching shared reports:', e);
+    throw new Error('Failed to fetch shared reports.');
   }
 }

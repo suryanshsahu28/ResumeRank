@@ -15,6 +15,24 @@ export type Resume = {
 
 export type CandidateStatus = 'none' | 'shortlisted' | 'rejected';
 
+// Sharing types
+export type ShareRole = 'view' | 'edit';
+
+export interface Collaborator {
+  role: ShareRole;
+  addedBy: string;
+  addedAt: string; // ISO string
+  email?: string; // Email for display purposes
+}
+
+export interface SharedReport {
+  ownerId: string;
+  reportId: string;
+  role: ShareRole;
+  addedAt: string; // ISO string
+  email?: string; // Email for display purposes
+}
+
 export type AnalysisDetails = {
   [key: string]: {
     skills: ParseResumeSkillsOutput;

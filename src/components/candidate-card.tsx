@@ -40,6 +40,7 @@ interface CandidateCardProps {
   status: CandidateStatus;
   weights:MetricWeights;
   onStatusChange: (status: CandidateStatus) => void;
+  canEdit?: boolean;
 }
 
 const getRankColor = (rank: number) => {
@@ -56,6 +57,7 @@ export default function CandidateCard({
   status,
   weights,
   onStatusChange,
+  canEdit = true,
 }: CandidateCardProps) {
 
   const scoreColor =
@@ -71,6 +73,7 @@ export default function CandidateCard({
   }
 
   const isLoadingDetails = !details;
+
   return (
     <Card className="transition-all hover:shadow-lg">
       <CardHeader>
@@ -96,32 +99,38 @@ export default function CandidateCard({
                 <span className="text-xs ml-1 mt-1">/100</span>
              </Badge>
              <p className="text-xs text-muted-foreground">Relevance Score</p> 
-             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                 <Button variant="outline" size="sm" className={cn("w-full", statusConfig[status].className)}>
-                  {statusConfig[status].text} <MoreVertical className="w-4 h-4 ml-2" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onStatusChange('shortlisted')}>
-                  <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
-                  <span>Shortlist</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onStatusChange('rejected')}>
-                  <XCircle className="mr-2 h-4 w-4 text-red-500" />
-                  <span>Reject</span>
-                </DropdownMenuItem>
-                 {status !== 'none' && (
-                  <>
-                    <Separator className="my-1" />
-                    <DropdownMenuItem onClick={() => onStatusChange('none')}>
-                      <Undo className="mr-2 h-4 w-4" />
-                      <span>Reset Status</span>
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+             {canEdit ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                   <Button variant="outline" size="sm" className={cn("w-full", statusConfig[status].className)}>
+                    {statusConfig[status].text} <MoreVertical className="w-4 h-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onStatusChange('shortlisted')}>
+                    <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                    <span>Shortlist</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onStatusChange('rejected')}>
+                    <XCircle className="mr-2 h-4 w-4 text-red-500" />
+                    <span>Reject</span>
+                  </DropdownMenuItem>
+                   {status !== 'none' && (
+                    <>
+                      <Separator className="my-1" />
+                      <DropdownMenuItem onClick={() => onStatusChange('none')}>
+                        <Undo className="mr-2 h-4 w-4" />
+                        <span>Reset Status</span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+             ) : (
+              <Button variant="outline" size="sm" className={cn("w-full", statusConfig[status].className)} disabled>
+                {statusConfig[status].text}
+              </Button>
+             )}
           </div>
         </div>
         <div className="pt-2">
