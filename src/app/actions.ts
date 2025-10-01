@@ -255,6 +255,7 @@ export async function analyzeSingleResumeAction(
           jobDescription: fd?.jobDescription ?? jobDescription,
           jobRole: fd?.jobRole ?? jobInfoResult.jobRole,
           jobDescriptionSummary: fd?.jobDescriptionSummary ?? jobInfoResult.summary,
+          jobDescriptionFile: fd?.jobDescriptionFile, // Include JD file info
           rankedResumes: fd?.rankedResumes ?? merged,
           resumes: (fd?.resumes ?? finalResumes).map((r:any) => ({
             ...r, 
@@ -426,6 +427,7 @@ export async function updateAndReanalyzeReport(
             jobDescription,
             jobRole: finalDocData?.jobRole || jobRole,
             jobDescriptionSummary: finalDocData?.jobDescriptionSummary || jobDescriptionSummary,
+            jobDescriptionFile: finalDocData?.jobDescriptionFile, // Include JD file info
             rankedResumes: finalDocData?.rankedResumes || [],
             resumes: finalDocData?.resumes.map((r:any) => ({
               ...r, 
