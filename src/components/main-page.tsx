@@ -15,6 +15,7 @@ import { Loader2, Sparkles, ArrowLeft, Upload, FileText, X, CheckCircle, Sliders
 import { ComparisonModal } from './comparison-modal';
 import { ResumeViewerModal } from './resume-viewer-modal';
 import { WeightSliders } from './weight-sliders';
+import { JDPreviewModal } from './jd-preview-modal';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { formatDistanceToNow } from 'date-fns';
@@ -78,6 +79,7 @@ export default function MainPage({ onBack, existingResult, onAnalysisComplete }:
 
   const [isViewerOpen, setIsViewerOpen] = React.useState(false);
   const [viewingIndex, setViewingIndex] = React.useState(0);
+  const [isJdPreviewOpen, setIsJdPreviewOpen] = React.useState(false);
   
   const [isDragOver, setIsDragOver] = React.useState(false);
   const [isJdDragOver, setIsJdDragOver] = React.useState(false);
@@ -97,7 +99,7 @@ export default function MainPage({ onBack, existingResult, onAnalysisComplete }:
   const [currentPage, setCurrentPage] = React.useState(1);
 
   const isViewingPastReport = !!existingResult;
-  const analysisResult = existingResult;
+  const [analysisResult, setAnalysisResult] = React.useState<Report | null>(existingResult || null);
 
   React.useEffect(() => {
     setSelectedForCompare(new Set());
@@ -256,7 +258,10 @@ export default function MainPage({ onBack, existingResult, onAnalysisComplete }:
     }
   
     if (streamError) throw streamError;
-    if (finalReport) onAnalysisComplete(finalReport);
+    if (finalReport) {
+      setAnalysisResult(finalReport);
+      onAnalysisComplete(finalReport);
+    }
   };
   
 
@@ -317,7 +322,12 @@ const handleAnalyze = async () => {
           weights,
           user.uid,
           singleFilePayload,
-          reportId ? { reportId } : undefined
+          reportId ? { reportId } : (jobDescriptionFile.length > 0 ? {
+            jobDescriptionFile: {
+              filename: jobDescriptionFile[0].name,
+              data: await jobDescriptionFile[0].arrayBuffer()
+            }
+          } : undefined)
         );
           // Read server events; capture reportId from the first call
           await processStream(stream, {
@@ -327,6 +337,7 @@ const handleAnalyze = async () => {
                 reportId = evt.id; // subsequent resumes append to same report
               }
               if (evt?.type === 'done') {
+                  setAnalysisResult(evt.report);
                   onAnalysisComplete(evt.report);
               }
             },
@@ -424,6 +435,7 @@ const handleAnalyze = async () => {
                           // updateScore(evt.filename, evt.score);
                         }
                          if (evt?.type === 'done') {
+                            setAnalysisResult(evt.report);
                             onAnalysisComplete?.(evt.report);
                         }
                         if (evt?.type === 'error') {
@@ -659,26 +671,44 @@ const SIZE=100;
             </div>
 
             {/* Job Role/Description Header */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-start gap-3">
-                <Briefcase className="w-6 h-6 text-blue-600 mt-1 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-2">
-                    {analysisResult.jobRole || 'Job Analysis'}
-                  </h2>
-                  {analysisResult.jobDescriptionSummary && (
-                    <p className="text-sm text-gray-600">
-                      {analysisResult.jobDescriptionSummary}
-                    </p>
-                  )}
-                  {!analysisResult.jobDescriptionSummary && analysisResult.jobDescription && (
-                    <p className="text-sm text-gray-600 line-clamp-3">
-                      {analysisResult.jobDescription}
-                    </p>
-                  )}
+            <div className="flex items-center gap-4">
+              {/* Center: JD details card */}
+              <div className="flex-1">
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                  <div className="flex items-start gap-3">
+                    <Briefcase className="w-6 h-6 text-blue-600 mt-1 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                        {analysisResult.jobRole || 'Job Analysis'}
+                      </h2>
+
+                      {analysisResult.jobDescriptionSummary ? (
+                        <p className="text-sm text-gray-600">
+                          {analysisResult.jobDescriptionSummary}
+                        </p>
+                      ) : analysisResult.jobDescription ? (
+                        <p className="text-sm text-gray-600 line-clamp-3">
+                          {analysisResult.jobDescription}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
               </div>
+
+              {/* Right: JD preview button */}
+              {analysisResult.jobDescriptionFile && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsJdPreviewOpen(true)}
+                  title="View Job Description"
+                >
+                  <Eye className="h-5 w-5" />
+                </Button>
+              )}
             </div>
+
 
             {showReanalyzeUI && <ReanalyzeSection />}
             
@@ -988,6 +1018,15 @@ const SIZE=100;
             hasPrev={viewingIndex > 0}
         />
       )}
+      
+      <JDPreviewModal
+        isOpen={isJdPreviewOpen}
+        onClose={() => {
+          console.log('JD Preview modal closing');
+          setIsJdPreviewOpen(false);
+        }}
+        jdFile={analysisResult?.jobDescriptionFile}
+      />
     </div>
   );
 }

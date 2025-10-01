@@ -30,6 +30,10 @@ export type AnalysisResult = {
   statuses: Record<string, CandidateStatus>;
   jobRole?: string | null;
   jobDescriptionSummary?: string | null;
+  jobDescriptionFile?: {
+    filename: string;
+    url: string;
+  };
 };
 
 export interface MetricWeights {

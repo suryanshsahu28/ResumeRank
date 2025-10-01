@@ -13,6 +13,10 @@ export type Report = Omit<AnalysisResult, 'resumes'> & {
   jobDescription: string, 
   jobRole?: string | null,
   jobDescriptionSummary?: string | null,
+  jobDescriptionFile?: {
+    filename: string;
+    url: string;
+  },
   createdAt: string, 
   resumes: (Resume & {url?: string})[]
 };

@@ -89,7 +89,7 @@ export async function analyzeSingleResumeAction(
   weights: MetricWeights,
   userId: string,
   file: { filename: string; data: ArrayBuffer },
-  opts?: { reportId?: string } // optional existing report to append
+  opts?: { reportId?: string; jobDescriptionFile?: { filename: string; data: ArrayBuffer } } // optional existing report to append and JD file
 ): Promise<ReadableStream<any>> {
   const stream = new ReadableStream({
     async start(controller) {
@@ -113,11 +113,14 @@ export async function analyzeSingleResumeAction(
 
         // ---- ensure a report (create if not provided)
         let reportRef;
+        let jobDescriptionFileUrl: string | undefined;
+        
         if (opts?.reportId) {
           reportRef = doc(db, 'users', userId, 'analysisReports', opts.reportId);
           const snap = await getDoc(reportRef);
           if (!snap.exists()) throw new Error('Report not found for given reportId.');
         } else {
+          // Create report first to get the ID
           const initial = {
             jobDescription,
             jobRole: jobInfoResult.jobRole,
@@ -129,11 +132,35 @@ export async function analyzeSingleResumeAction(
           };
           reportRef = await addDoc(collection(db, 'users', userId, 'analysisReports'), initial);
           send({ type: 'reportId', id: reportRef.id });
+          
+          // Upload JD file if provided (after we have the report ID)
+          if (opts?.jobDescriptionFile) {
+            send({ type: 'status', message: 'Uploading job description file...' });
+            const jdStorageRef = ref(storage, `resumehire/${userId}/${reportRef.id}/jd/${opts.jobDescriptionFile.filename}`);
+            await uploadBytes(jdStorageRef, opts.jobDescriptionFile.data);
+            jobDescriptionFileUrl = await getDownloadURL(jdStorageRef);
+            
+            console.log('JD file uploaded:', {
+              filename: opts.jobDescriptionFile.filename,
+              url: jobDescriptionFileUrl,
+              reportId: reportRef.id
+            });
+            
+            // Update the report with JD file info
+            await updateDoc(reportRef, {
+              jobDescriptionFile: {
+                filename: opts.jobDescriptionFile.filename,
+                url: jobDescriptionFileUrl
+              }
+            });
+            
+            console.log('JD file info saved to report');
+          }
         }
         console.log(weights)
         // ---- upload ONLY this resume file
         send({ type: 'status', message: `Uploading ${file.filename}...` });
-        const storageRef = ref(storage, `resumehire/${userId}/${reportRef.id}/${file.filename}`);
+        const storageRef = ref(storage, `resumehire/${userId}/${reportRef.id}/resume/${file.filename}`);
         await uploadBytes(storageRef, file.data);
         const downloadURL = await getDownloadURL(storageRef);
 
@@ -319,7 +346,7 @@ export async function updateAndReanalyzeReport(
         
         enqueue({ type: 'status', message: 'Uploading new resume files...' });
         for (const file of newFiles) {
-            const storageRef = ref(storage, `resumehire/${userId}/${reportId}/${file.filename}`);
+            const storageRef = ref(storage, `resumehire/${userId}/${reportId}/resume/${file.filename}`);
             await uploadBytes(storageRef, file.data);
             const downloadURL = await getDownloadURL(storageRef);
             allResumesMap.set(file.filename, { ...allResumesMap.get(file.filename)!, url: downloadURL });
@@ -468,11 +495,12 @@ export async function getAnalysisReports(
           return acc;
         }, {});
 
-      return {
+      const report = {
         id: reportId,
         jobDescription: data.jobDescription,
         jobRole: data.jobRole,
         jobDescriptionSummary: data.jobDescriptionSummary,
+        jobDescriptionFile: data.jobDescriptionFile,
         rankedResumes: rankedResumes,
         resumes: (data.resumes || []).map((r: any) => ({
           ...r,
@@ -482,6 +510,14 @@ export async function getAnalysisReports(
         statuses: statuses,
         createdAt: (data.createdAt?.toDate() ?? new Date()).toISOString(),
       } as Report;
+      
+      console.log('Report loaded:', {
+        id: reportId,
+        hasJobDescriptionFile: !!data.jobDescriptionFile,
+        jobDescriptionFile: data.jobDescriptionFile
+      });
+      
+      return report;
     });
 
     const reports = await Promise.all(reportsPromises);
