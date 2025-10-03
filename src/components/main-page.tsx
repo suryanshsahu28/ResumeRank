@@ -359,7 +359,6 @@ const handleAnalyze = async () => {
           });
         } catch (err: any) {
           if (err.name === 'AbortError') {
-              console.log('Analysis of a file was aborted.');
               break;
           }
           console.error('Failed:', file.name, err);
@@ -446,17 +445,6 @@ const handleAnalyze = async () => {
                 if (!reportOwnerId) {
                     throw new Error('Report owner ID is missing. Cannot proceed with reanalysis.');
                 }
-                
-                // Log for debugging
-                console.log('Reanalyze context:', {
-                    reportId: analysisResult.id,
-                    currentUserId: user.uid,
-                    reportOwnerId,
-                    hasOwnerId: !!(analysisResult as any).ownerId,
-                    userRole: userRole,
-                    reportRole: (analysisResult as any).role,
-                    canEdit: canEdit
-                });
                 const stream = await analyzeSingleResumeAction(
                   jdText,
                   meta,
@@ -504,7 +492,6 @@ const handleAnalyze = async () => {
                 if (err?.name === 'AbortError') {
                   console.log('Re-analysis aborted by user.');
                 }
-                console.error('Failed:', file.name, err);
                 toast({
                     title: `Failed: ${file.name}`,
                     description: err?.message ?? 'Unexpected error',      
@@ -1279,7 +1266,6 @@ const SIZE=100;
       <JDPreviewModal
         isOpen={isJdPreviewOpen}
         onClose={() => {
-          console.log('JD Preview modal closing');
           setIsJdPreviewOpen(false);
         }}
         jdFile={analysisResult?.jobDescriptionFile}

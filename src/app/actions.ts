@@ -78,7 +78,6 @@ async function retry<T>(fn: () => Promise<T>): Promise<T> {
       if (e.message?.includes('429') || e.message?.includes('503')) {
          if (i < 4) { 
           const delay = 2000 * Math.pow(2, i);
-          console.log(`Attempt ${i + 1} failed with ${e.message}. Retrying in ${delay}ms...`);
           await new Promise(res => setTimeout(res, delay));
         }
       } else {
@@ -147,24 +146,15 @@ export async function analyzeSingleResumeAction(
             await uploadBytes(jdStorageRef, opts.jobDescriptionFile.data);
             jobDescriptionFileUrl = await getDownloadURL(jdStorageRef);
             
-            console.log('JD file uploaded:', {
-              filename: opts.jobDescriptionFile.filename,
-              url: jobDescriptionFileUrl,
-              reportId: reportRef.id
-            });
-            
             // Update the report with JD file info
             await updateDoc(reportRef, {
               jobDescriptionFile: {
                 filename: opts.jobDescriptionFile.filename,
                 url: jobDescriptionFileUrl
               }
-            });
-            
-            console.log('JD file info saved to report');
+            });            
           }
         }
-        console.log(weights)
         // ---- upload ONLY this resume file
         send({ type: 'status', message: `Uploading ${file.filename}...` });
         const storageRef = ref(storage, `resumehire/${userId}/${reportRef.id}/resume/${file.filename}`);
@@ -521,13 +511,6 @@ export async function getAnalysisReports(
         // Include collaborators if they exist
         collaborators: data.collaborators || {},
       } as Report;
-      
-      console.log('Report loaded:', {
-        id: reportId,
-        hasJobDescriptionFile: !!data.jobDescriptionFile,
-        jobDescriptionFile: data.jobDescriptionFile
-      });
-      
       return report;
     });
 
@@ -705,15 +688,6 @@ export async function shareReport(
         ...collaboratorData,
         sharedReports: [...currentSharedReports, newSharedReport],
       }, { merge: true });
-
-      console.log('Sharing report:', {
-        ownerId,
-        reportId,
-        collaboratorId,
-        collaboratorEmail,
-        role,
-        newSharedReport
-      });
     });
 
   } catch (e: any) {
@@ -917,14 +891,12 @@ export async function listSharedWithMe(userId: string): Promise<Report[]> {
     // Get current user's email to find their collaborator ID
     const currentUserEmail = await getCurrentUserEmail(userId);
     if (!currentUserEmail) {
-      console.log('No email found for current user');
       return [];
     }
 
     // Generate the collaborator ID from email (same logic as in shareReport)
     const collaboratorId = await findUserByEmail(currentUserEmail);
     if (!collaboratorId) {
-      console.log('Could not generate collaborator ID from email');
       return [];
     }
 
@@ -933,18 +905,13 @@ export async function listSharedWithMe(userId: string): Promise<Report[]> {
     const userSnap = await getDoc(userRef);
     
     if (!userSnap.exists()) {
-      console.log('No user document found for collaborator ID:', collaboratorId);
       return [];
     }
 
     const userData = userSnap.data();
     const sharedReports = userData.sharedReports || [];
 
-    console.log('User data:', userData);
-    console.log('Shared reports from user doc:', sharedReports);
-
     if (sharedReports.length === 0) {
-      console.log('No shared reports found for user');
       return [];
     }
 

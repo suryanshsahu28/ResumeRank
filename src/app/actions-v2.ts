@@ -131,12 +131,10 @@ export async function processSingleResume(batchId: string): Promise<void> {
     const batchRef = doc(db, 'batches', batchId);
     const batchSnap = await getDoc(batchRef);
     if (!batchSnap.exists()) {
-      console.log(`Batch ${batchId} does not exist. Worker ${workerId} stopping.`);
       return;
     }
     const batchData = batchSnap.data() as BatchDoc;
     if (batchData.status === 'paused' || batchData.status === 'cancelled') {
-      console.log(`Batch ${batchId} is ${batchData.status}. Worker ${workerId} stopping.`);
       return;
     }
 
@@ -180,7 +178,6 @@ export async function processSingleResume(batchId: string): Promise<void> {
       const totalProcessed = (batchData.completed || 0) + (batchData.failed || 0) + (batchData.cancelledCount || 0) + (batchData.skippedDuplicates || 0);
       if (totalProcessed >= batchData.total) {
           await updateDoc(batchRef, { status: 'complete', updatedAt: serverTimestamp() });
-          console.log(`Batch ${batchId} completed.`);
       }
       return;
     }
@@ -190,7 +187,6 @@ export async function processSingleResume(batchId: string): Promise<void> {
     const freshBatchData = freshBatchSnap.data() as BatchDoc;
     if (freshBatchData.status !== 'running') {
         await updateDoc(claimedResumeRef, { status: 'pending', workerId: null, startTime: null, lastUpdatedAt: serverTimestamp() });
-        console.log(`Batch ${batchId} status changed after claim. Re-queueing resume. Worker ${workerId} stopping.`);
         // Don't requeue the whole loop, just stop this worker instance.
         return;
     }
@@ -330,7 +326,6 @@ export async function watchdog() {
     );
 
     const querySnapshot = await getDocs(q);
-    console.log(`Watchdog found ${querySnapshot.size} potentially stuck jobs.`);
 
     for (const resumeDoc of querySnapshot.docs) {
         const resume = resumeDoc.data() as ResumeDoc;
@@ -348,7 +343,6 @@ export async function watchdog() {
                     lastUpdatedAt: serverTimestamp(),
                     error: { code: 'timeout_watchdog', message: `Job timed out after ${RUN_TIMEOUT_SEC} seconds. Re-queued by watchdog.` }
                 });
-                console.log(`Re-queued job ${resumeDoc.id} from batch ${resume.batchId}.`);
             } else {
                 await updateDoc(resumeRef, {
                     status: 'failed',
@@ -356,7 +350,6 @@ export async function watchdog() {
                     error: { code: 'timeout_final', message: `Job failed after ${MAX_RETRIES + 1} attempts including timeouts.` }
                 });
                 await updateDoc(batchRef, { failed: increment(1), updatedAt: serverTimestamp() });
-                console.log(`Failed job ${resumeDoc.id} from batch ${resume.batchId} due to repeated timeouts.`);
             }
         } catch (error) {
             console.error(`Watchdog failed to update job ${resumeDoc.id}:`, error);
