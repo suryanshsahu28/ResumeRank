@@ -299,15 +299,6 @@ export default function Dashboard({
                   <Eye className="w-4 h-4" />
                   View Results
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex items-center gap-2"
-                  disabled
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Analytics
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -338,9 +329,6 @@ export default function Dashboard({
               <TableRow key={project.id} className="hover:bg-gray-50">
                 <TableCell>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-teal-400 to-cyan-500 rounded-lg flex items-center justify-center">
-                      <FolderOpen className="w-5 h-5 text-white" />
-                    </div>
                     <div>
                         <div className="font-semibold text-gray-800 line-clamp-1">
                           {project.jobRole ?? 'Untitled Analysis'}
@@ -383,9 +371,6 @@ export default function Dashboard({
                       onClick={() => onViewReport(project)}
                     >
                       <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" disabled>
-                      <BarChart3 className="w-4 h-4" />
                     </Button>
 
                     {activeTab !== 'shared' && (
