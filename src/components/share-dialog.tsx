@@ -32,11 +32,12 @@ interface ShareDialogProps {
   onClose: () => void;
   reportId: string;
   ownerId: string;
+  ownerEmail?: string; // Current user's email for self-share prevention
   onShareSuccess?: () => void;
   collaborators?: Record<string, { role: ShareRole; addedBy: string; addedAt: string; email?: string }>;
 }
 
-export function ShareDialog({ isOpen, onClose, reportId, ownerId, onShareSuccess, collaborators = {} }: ShareDialogProps) {
+export function ShareDialog({ isOpen, onClose, reportId, ownerId, ownerEmail, onShareSuccess, collaborators = {} }: ShareDialogProps) {
   const [email, setEmail] = React.useState('');
   const [role, setRole] = React.useState<ShareRole>('view');
   const [isLoading, setIsLoading] = React.useState(false);
@@ -59,6 +60,32 @@ export function ShareDialog({ isOpen, onClose, reportId, ownerId, onShareSuccess
       toast({
         title: 'Invalid Email',
         description: 'Please enter a valid email address.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Prevent sharing with self
+    if (ownerEmail && email.trim().toLowerCase() === ownerEmail.toLowerCase()) {
+      toast({
+        title: 'Cannot Share With Yourself',
+        description: 'You cannot share a report with yourself.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Prevent duplicate shares
+    const inputEmail = email.trim().toLowerCase();
+    const isAlreadyShared = Object.values(collaborators).some(collaborator => {
+      const collaboratorEmail = collaborator.email?.toLowerCase();
+      return collaboratorEmail === inputEmail;
+    });
+
+    if (isAlreadyShared) {
+      toast({
+        title: 'Already Shared',
+        description: 'This report is already shared with this user.',
         variant: 'destructive',
       });
       return;

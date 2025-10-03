@@ -188,9 +188,9 @@ export default function Dashboard({
                     <FolderOpen className="w-6 h-6 text-white" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gray-800 text-lg leading-tight line-clamp-2">
-                      {project.jobRole ?? 'Untitled Analysis'}
-                    </h3>
+                      <h3 className="font-semibold text-gray-800 text-lg leading-tight line-clamp-2">
+                        {project.jobRole ?? 'Untitled Analysis'}
+                      </h3>
                     {project.jobDescriptionSummary && (
                       <p className="text-sm text-gray-600 mt-1 line-clamp-1">
                         {project.jobDescriptionSummary}
@@ -342,9 +342,9 @@ export default function Dashboard({
                       <FolderOpen className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <div className="font-semibold text-gray-800 line-clamp-1">
-                        {project.jobRole ?? 'Untitled Analysis'}
-                      </div>
+                        <div className="font-semibold text-gray-800 line-clamp-1">
+                          {project.jobRole ?? 'Untitled Analysis'}
+                        </div>
                       {project.jobDescriptionSummary && (
                         <div className="text-xs text-gray-600 mt-1 line-clamp-1">
                           {project.jobDescriptionSummary}
@@ -479,9 +479,9 @@ export default function Dashboard({
             <h2 className="text-2xl font-semibold text-black mb-2 font-['Bitter']">
               Analysis Projects Dashboard
             </h2>
-            <p className="text-lg text-gray-600">
-              Manage and review all resume analysis
-            </p>
+              <p className="text-lg text-gray-600">
+                Manage and review all resume analysis
+              </p>
           </div>
 
           <Card className="bg-white shadow-sm">
@@ -489,10 +489,10 @@ export default function Dashboard({
               <div className="flex gap-4 items-center">
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                  <Input
-                    placeholder="Search analysis by title or description..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    <Input
+                      placeholder="Search analysis by title or description..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-10 h-12 text-base"
                   />
                 </div>
@@ -563,10 +563,10 @@ export default function Dashboard({
                 <Card>
                   <CardContent className="p-12 text-center">
                     <Inbox className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No analysis found</h3>
-                    <p className="text-gray-500">
-                      {searchQuery ? 'Try adjusting your search terms.' : 'Create your first analysis to get started.'}
-                    </p>
+                      <h3 className="text-xl font-semibold text-gray-600 mb-2">No analysis found</h3>
+                      <p className="text-gray-500">
+                        {searchQuery ? 'Try adjusting your search terms.' : 'Create your first analysis to get started.'}
+                      </p>
                   </CardContent>
                 </Card>
               )}
@@ -581,8 +581,8 @@ export default function Dashboard({
                 <Card>
                   <CardContent className="p-12 text-center">
                     <Inbox className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-600 mb-2">No shared analysis</h3>
-                    <p className="text-gray-500">Analysis shared with you will appear here.</p>
+                      <h3 className="text-xl font-semibold text-gray-600 mb-2">No shared analysis</h3>
+                      <p className="text-gray-500">Analysis shared with you will appear here.</p>
                   </CardContent>
                 </Card>
               )}
@@ -592,12 +592,12 @@ export default function Dashboard({
             </TabsContent>
           </Tabs>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <StatCard icon={<FolderOpen />} label="My Analysis" value={ownCount} />
-            <StatCard icon={<Share2 className="text-blue-600" />} label="Shared With Me" value={sharedCount} />
-            <StatCard icon={<Users className="text-purple-600" />} label="Total Analysis" value={totalCount} />
-            <StatCard icon={<Users className="text-purple-600" />} label="Total Candidates" value={reports.reduce((total, r) => total + (r.resumes?.length ?? 0), 0)} />
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <StatCard icon={<FolderOpen />} label="My Analysis" value={ownCount} />
+              <StatCard icon={<Share2 className="text-blue-600" />} label="Shared With Me" value={sharedCount} />
+              <StatCard icon={<Users className="text-purple-600" />} label="Total Analysis" value={totalCount} />
+              <StatCard icon={<Users className="text-purple-600" />} label="Total Candidates" value={reports.reduce((total, r) => total + (r.resumes?.length ?? 0), 0)} />
+            </div>
         </div>
       </main>
 
@@ -627,6 +627,7 @@ export default function Dashboard({
         }}
         reportId={reportToShare?.id || ''}
         ownerId={user?.uid || ''}
+        ownerEmail={user?.email ?? undefined}
         collaborators={reportCollaborators}
         onShareSuccess={async () => {
           // Refresh the reports list and collaborators

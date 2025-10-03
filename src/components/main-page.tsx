@@ -11,7 +11,7 @@ import { useAuth } from '@/hooks/use-auth';
 import Header from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Loader2, Sparkles, ArrowLeft, Upload, FileText, X, CheckCircle, Sliders, Play, Briefcase, Calendar, Clock, Users, Eye, Replace, FileX, MoreVertical, Trash2, Check, Inbox } from 'lucide-react';
+import { Loader2, Sparkles, ArrowLeft, Upload, FileText, X, CheckCircle, Sliders, Play, Briefcase, Calendar, Clock, Users, Eye, Replace, FileX, MoreVertical, Trash2, Check, Inbox, Grid3X3, List, Settings } from 'lucide-react';
 import { ComparisonModal } from './comparison-modal';
 import { ResumeViewerModal } from './resume-viewer-modal';
 import { WeightSliders } from './weight-sliders';
@@ -22,6 +22,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { Checkbox } from './ui/checkbox';
 import CandidateCard from './candidate-card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuLabel } from './ui/dropdown-menu';
 import { updateAnalysisReportStatus, analyzeSingleResumeAction } from '@/app/actions';
 import type * as PdfJs from 'pdfjs-dist';
 
@@ -98,6 +100,7 @@ export default function MainPage({ onBack, existingResult, onAnalysisComplete, u
   const [activeTab, setActiveTab] = React.useState<"all" | "shortlisted" | "rejected">('all');
   const [candidateStatuses, setCandidateStatuses] = React.useState<Record<string, CandidateStatus>>({});
   const [currentPage, setCurrentPage] = React.useState(1);
+  const [viewMode, setViewMode] = React.useState<'card' | 'list'>('card');
 
   const isViewingPastReport = !!existingResult;
   const [analysisResult, setAnalysisResult] = React.useState<Report | null>(existingResult || null);
@@ -431,8 +434,29 @@ const handleAnalyze = async () => {
             };    
 
             try {
-                // For shared reports, use the ownerId; otherwise use current user's uid
+                // For shared reports, we need to use the actual owner's ID to access the report
+                // The report exists under the owner's collection, not the current user's collection
                 const reportOwnerId = (analysisResult as any).ownerId || user.uid;
+                
+                // Validate essential data before proceeding
+                if (!analysisResult.id) {
+                    throw new Error('Report ID is missing. Cannot proceed with reanalysis.');
+                }
+                
+                if (!reportOwnerId) {
+                    throw new Error('Report owner ID is missing. Cannot proceed with reanalysis.');
+                }
+                
+                // Log for debugging
+                console.log('Reanalyze context:', {
+                    reportId: analysisResult.id,
+                    currentUserId: user.uid,
+                    reportOwnerId,
+                    hasOwnerId: !!(analysisResult as any).ownerId,
+                    userRole: userRole,
+                    reportRole: (analysisResult as any).role,
+                    canEdit: canEdit
+                });
                 const stream = await analyzeSingleResumeAction(
                   jdText,
                   meta,
@@ -458,8 +482,15 @@ const handleAnalyze = async () => {
                           // updateScore(evt.filename, evt.score);
                         }
                          if (evt?.type === 'done') {
-                            setAnalysisResult(evt.report);
-                            onAnalysisComplete?.(evt.report);
+                            // Preserve the original ownerId for shared reports
+                            const updatedReport = {
+                                ...evt.report,
+                                // For shared reports, preserve the original ownerId
+                                ownerId: (analysisResult as any).ownerId || evt.report.ownerId,
+                                role: (analysisResult as any).role || evt.report.role
+                            };
+                            setAnalysisResult(updatedReport);
+                            onAnalysisComplete?.(updatedReport);
                         }
                         if (evt?.type === 'error') {
                           toast({ title: `Error: ${file.name}`, description: evt.error, variant: 'destructive' });
@@ -592,18 +623,123 @@ const SIZE=100;
     currentPage * RESUMES_PER_PAGE
   );
 
+  const renderTableView = () => (
+    <Card>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-8">
+              <CheckCircle className="w-4 h-4 mx-auto" />
+            </TableHead>
+            <TableHead>Rank</TableHead>
+            <TableHead>Candidate</TableHead>
+            <TableHead>Score</TableHead>
+            <TableHead>Experience</TableHead>
+            <TableHead>Skills Match</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {paginatedResumes.map((rankedResume) => {
+            if (!analysisResult) return null;
+            const detail = analysisResult.details[rankedResume.filename];
+            const status = candidateStatuses[rankedResume.filename] || 'none';
+            const rank = analysisResult.rankedResumes.findIndex(r => r.filename === rankedResume.filename) + 1;
+            const matchedSkillsCount = detail.keywords.matches?.length || 0;
+            const missingSkillsCount = detail.keywords.missing?.length || 0;
+
+            return (
+              <TableRow 
+                key={rankedResume.filename} 
+                className={`hover:bg-gray-50 ${selectedForCompare.has(rankedResume.filename) ? 'bg-blue-50' : ''}`}
+              >
+                <TableCell className="text-center">
+                  <Checkbox
+                    id={`compare-${rankedResume.filename}`}
+                    checked={selectedForCompare.has(rankedResume.filename)}
+                    onCheckedChange={(checked) => handleCompareSelect(rankedResume.filename, !!checked)}
+                    disabled={selectedForCompare.size >= 3 && !selectedForCompare.has(rankedResume.filename)}
+                  />
+                </TableCell>
+                <TableCell className="font-semibold">{rank}</TableCell>
+                <TableCell>
+                  <div>
+                    <div className="font-semibold text-gray-800">
+                      {detail.candidateName || rankedResume.filename.replace(/_/g, ' ').replace('.txt', '')}
+                    </div>
+                    <div className="text-sm text-gray-600 truncate max-w-xs">
+                      {rankedResume.highlights?.substring(0, 80)}...
+                    </div>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="font-bold text-lg text-blue-600">{rankedResume.score}</div>
+                </TableCell>
+                <TableCell>
+                  <div className="text-sm">
+                    {detail.skills.experienceYears < 0 ? 'N/A' : `${detail.skills.experienceYears} years`}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="text-sm">
+                    <span className="text-green-600 font-medium">{matchedSkillsCount} matched</span>
+                    {missingSkillsCount > 0 && (
+                      <span className="text-red-600 ml-2">{missingSkillsCount} missing</span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const newStatus: CandidateStatus = status === 'shortlisted' ? 'rejected' : 
+                               status === 'rejected' ? 'none' : 'shortlisted';
+                      handleStatusChange(rankedResume.filename, newStatus);
+                    }}
+                    disabled={!canEdit}
+                    className={`text-xs px-2 py-1 ${
+                      status === 'shortlisted' ? 'bg-green-100 text-green-800' :
+                      status === 'rejected' ? 'bg-red-100 text-red-800' :
+                      'bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {status === 'shortlisted' ? '✓ Shortlisted' :
+                     status === 'rejected' ? '✗ Rejected' :
+                     '○ None'}
+                  </Button>
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button variant="ghost" size="sm" onClick={() => handleView(rankedResume.filename)}>
+                    <Eye className="w-4 h-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+
   const handleCompareSelect = (filename: string, isSelected: boolean) => {
     const newSelectionSet = new Set(selectedForCompare);
     if (isSelected) {
       if (newSelectionSet.size < 3) {
         newSelectionSet.add(filename);
+        setSelectedForCompare(newSelectionSet);
       } else {
-        toast({ title: 'Comparison Limit', description: 'You can only compare up to 3 candidates at a time.', variant: 'destructive'})
+        toast({ 
+          title: 'Comparison Limit Reached', 
+          description: 'You can only compare up to 3 candidates at a time. Please deselect one to continue.', 
+          variant: 'destructive'
+        });
       }
     } else {
       newSelectionSet.delete(filename);
+      setSelectedForCompare(newSelectionSet);
     }
-    setSelectedForCompare(newSelectionSet);
   };
   
   const jdFile = analysisResult?.resumes.find(r => r.filename === (jobDescriptionFile[0]?.name));
@@ -736,30 +872,109 @@ const SIZE=100;
 
             {showReanalyzeUI && canEdit && <>{ReanalyzeSection}</>}
             
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "all" | "shortlisted" | "rejected")}>
+            <div className="mb-6">
               <div className="flex justify-between items-center mb-4">
                   <h3 className="text-xl font-semibold text-gray-800">
                     Candidate Results ({filteredResumes.length})
                   </h3>
-                  <TabsList>
-                      <TabsTrigger value="all">All</TabsTrigger>
-                      <TabsTrigger value="shortlisted">Shortlisted</TabsTrigger>
-                      <TabsTrigger value="rejected">Rejected</TabsTrigger>
-                  </TabsList>
+                  <div className="flex items-center gap-4">
+                      {/* Dropdown Menu */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 px-3">
+                            <MoreVertical className="w-4 h-4 mr-2" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuLabel>Category</DropdownMenuLabel>
+                          <DropdownMenuItem 
+                            onClick={() => setActiveTab('all')}
+                            className={activeTab === 'all' ? 'bg-blue-50' : ''}
+                          >
+                            <Check className="w-4 h-4 mr-2" />
+                            All ({analysisResult.rankedResumes.length})
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => setActiveTab('shortlisted')}
+                            className={activeTab === 'shortlisted' ? 'bg-blue-50' : ''}
+                          >
+                            <Check className="w-4 h-4 mr-2" />
+                            Shortlisted ({analysisResult.rankedResumes.filter(r => candidateStatuses[r.filename] === 'shortlisted').length})
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => setActiveTab('rejected')}
+                            className={activeTab === 'rejected' ? 'bg-blue-50' : ''}
+                          >
+                            <Check className="w-4 h-4 mr-2" />
+                            Rejected ({analysisResult.rankedResumes.filter(r => candidateStatuses[r.filename] === 'rejected').length})
+                          </DropdownMenuItem>
+                          
+                          <DropdownMenuSeparator />
+                          
+                          <DropdownMenuLabel>View</DropdownMenuLabel>
+                          <DropdownMenuItem 
+                            onClick={() => setViewMode('card')}
+                            className={viewMode === 'card' ? 'bg-blue-50' : ''}
+                          >
+                            <Grid3X3 className="w-4 h-4 mr-2" />
+                            Cards
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => setViewMode('list')}
+                            className={viewMode === 'list' ? 'bg-blue-50' : ''}
+                          >
+                            <List className="w-4 h-4 mr-2" />
+                            List
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                  </div>
               </div>
-              <TabsContent value={activeTab}>
+              <div>
                 {isLoading && !loadingStatus.includes('Analyzing new resume') && <p>Loading...</p>}
                 {!isLoading && paginatedResumes.length === 0 && <EmptyState isFiltered />}
+                {/* Selection Status */}
+                {!isLoading && selectedForCompare.size > 0 && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-800">
+                          {selectedForCompare.size} candidate{selectedForCompare.size === 1 ? '' : 's'} selected for comparison
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedForCompare(new Set())}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        <X className="h-3 w-3 mr-1" />
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {!isLoading && paginatedResumes.length > 0 && (
-                  <div className="space-y-4">
+                  viewMode === 'card' ? (
+                    <div className="space-y-4">
                   {paginatedResumes.map((rankedResume) => (
-                      <div key={rankedResume.filename} className="flex items-center gap-4">
-                          <Checkbox
-                              id={`compare-${rankedResume.filename}`}
-                              checked={selectedForCompare.has(rankedResume.filename)}
-                              onCheckedChange={(checked) => handleCompareSelect(rankedResume.filename, !!checked)}
-                              disabled={selectedForCompare.size >= 3 && !selectedForCompare.has(rankedResume.filename)}
-                          />
+                      <div key={rankedResume.filename} className={`flex items-center gap-4 ${selectedForCompare.has(rankedResume.filename) ? 'bg-blue-50 border-2 border-blue-200 rounded-lg p-2 -m-2' : ''}`}>
+                          <div className="flex flex-col items-center gap-1">
+                              <Checkbox
+                                  id={`compare-${rankedResume.filename}`}
+                                  checked={selectedForCompare.has(rankedResume.filename)}
+                                  onCheckedChange={(checked) => handleCompareSelect(rankedResume.filename, !!checked)}
+                                  disabled={selectedForCompare.size >= 3 && !selectedForCompare.has(rankedResume.filename)}
+                                  className="border-2 border-blue-300"
+                              />
+                              {selectedForCompare.has(rankedResume.filename) && (
+                                  <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                                      {Array.from(selectedForCompare).indexOf(rankedResume.filename) + 1}
+                                  </span>
+                              )}
+                          </div>
                           <div className="flex-1">
                               <CandidateCard
                                   rank={analysisResult.rankedResumes.findIndex(r => r.filename === rankedResume.filename) + 1}
@@ -776,10 +991,27 @@ const SIZE=100;
                           </Button>
                       </div>
                   ))}
+                    </div>
+                  ) : (
+                    renderTableView()
+                  )
+                )}
+
+                {/* Compare Button - appears when candidates are selected */}
+                {!isLoading && selectedForCompare.size >= 2 && (
+                  <div className="flex justify-center mt-6">
+                    <Button
+                      onClick={() => handleComparison(Array.from(selectedForCompare))}
+                      className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white px-8 py-3 text-lg font-semibold shadow-lg"
+                      size="lg"
+                    >
+                      <CheckCircle className="mr-2 h-5 w-5" />
+                      Compare {selectedForCompare.size} Candidates
+                    </Button>
                   </div>
                 )}
-              </TabsContent>
-            </Tabs>
+              </div>
+            </div>
              {totalPages > 1 && (
               <div className="flex justify-center items-center gap-4 mt-6">
                 <Button

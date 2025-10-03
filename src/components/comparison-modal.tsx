@@ -39,10 +39,16 @@ const CandidateColumn: React.FC<{ rankedResume: AnalysisResult['rankedResumes'][
             {detail.keywords.matches?.length > 0 && (
                 <div>
                     <h4 className="text-sm font-semibold text-slate-800 mb-2">Matched Skills</h4>
-                    <ul className="space-y-2 text-sm text-slate-600 list-disc list-inside">
-                        {detail.keywords.matches.slice(0, 4).map((s, i) => <li key={i}><span className="font-medium text-slate-700">{s}</span></li>)}
-                         {detail.keywords.matches.length > 4 && <li className="text-slate-500">...and {detail.keywords.matches.length - 4} more.</li>}
-                    </ul>
+                    <div className="flex flex-wrap gap-1.5">
+                        {detail.keywords.matches.slice(0, 8).map((skill, i) => (
+                            <span key={i} className="bg-green-100 text-green-800 px-2 py-0.5 rounded-md text-xs font-medium">{skill}</span>
+                        ))}
+                        {detail.keywords.matches.length > 8 && (
+                            <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded-md text-xs font-medium">
+                                +{detail.keywords.matches.length - 8} more
+                            </span>
+                        )}
+                    </div>
                 </div>
             )}
             {detail.keywords.missing?.length > 0 && (

@@ -6,6 +6,16 @@ import { AuthProvider } from '@/components/auth-provider';
 export const metadata: Metadata = {
   title: 'Hire Varahe',
   description: 'AI-Powered Resume Analysis and Ranking',
+  icons: {
+    icon: [
+      {
+        url: "/images/varahe-logo.png",
+        type: "image/png",
+      },
+    ],
+    shortcut: "/images/varahe-logo.png",
+    apple: "/images/varahe-logo.png",
+  },
 };
 
 export default function RootLayout({
